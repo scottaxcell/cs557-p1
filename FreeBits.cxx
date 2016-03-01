@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <memory>
 
 #include "Manager.h"
 
@@ -9,4 +10,8 @@ int main( int argc, const char* argv[] )
   {
     printf( "arg %d: %s\n", i, argv[i] );
   }
+
+  std::string managerCfg("manager.conf");
+  auto manager = std::unique_ptr<Manager>(new Manager(managerCfg));
+  manager->readConf();
 }
