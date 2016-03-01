@@ -14,4 +14,5 @@ int main( int argc, const char* argv[] )
   std::string managerCfg("manager.conf");
   auto manager = std::unique_ptr<Manager>(new Manager(managerCfg));
   manager->readConf();
+  manager->fireOffProcesses();
 }

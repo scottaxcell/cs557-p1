@@ -12,7 +12,7 @@ struct Manager
   std::string m_conf;
   int m_numclients;
   int m_reqtimeout;
-  std::vector<std::unique_ptr<Client>> m_clients;
+  std::vector<std::shared_ptr<Client>> m_clients;
 
   // hidden
   Manager() {}
