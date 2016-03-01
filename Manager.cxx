@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <thread>
 
 void Manager::readConf()
 {
@@ -83,4 +84,17 @@ void Manager::readConf()
 
     // TODO next phases, read in file and download information for clients
   }
-};
+}
+
+void Manager::fireOffProcesses()
+{
+  std::vector<std::thread> threads;
+  for (auto &client : m_clients) {
+    std::thread t(client->doWork());
+    threads.push_back(t);
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+}
