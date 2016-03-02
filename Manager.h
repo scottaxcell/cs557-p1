@@ -12,13 +12,15 @@ struct Manager
   std::string m_conf;
   int m_numclients;
   int m_reqtimeout;
-  std::vector<std::shared_ptr<Client>> m_clients;
+  std::string m_spawnme;
+  std::vector<std::unique_ptr<Client>> m_clients;
 
   // hidden
   Manager() {}
 
 //public:
-  Manager(std::string& conf) : m_conf(conf), m_numclients(0), m_reqtimeout(0) {}
+  Manager(std::string& conf) : m_conf(conf), m_numclients(0), m_reqtimeout(0),
+    m_spawnme("T") {}
   ~Manager() {}
 
   void readConf();

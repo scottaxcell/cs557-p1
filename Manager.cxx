@@ -77,7 +77,7 @@ void Manager::readConf()
             continue;
           }
           // create a client and add it to manager
-          m_clients.emplace_back(std::shared_ptr<Client>(new Client(nodeId, packetDelay, packetDelayProb)));
+          m_clients.emplace_back(std::unique_ptr<Client>(new Client(nodeId, packetDelay, packetDelayProb)));
           continue;
         }
       }
@@ -87,28 +87,28 @@ void Manager::readConf()
   }
 }
 
-namespace {
-std::mutex mutex;
-void clientWork()
-{
-  std::lock_guard<std::mutex> lock(mutex);
-  std::this_thread::sleep_for(std::chrono::microseconds(100));
-  /*DEBUG*/std::cout << "Client " << "fired on thread " << std::this_thread::get_id() << std::endl;
-}
-} // namespace
+//namespace {
+//std::mutex mutex;
+//void clientWork()
+//{
+//  std::lock_guard<std::mutex> lock(mutex);
+//  std::this_thread::sleep_for(std::chrono::microseconds(100));
+//  /*DEBUG*/std::cout << "Client " << "fired on thread " << std::this_thread::get_id() << std::endl;
+//}
+//} // namespace
 
 void Manager::fireOffProcesses()
 {
   // TODO spawn tracker first
 
   // spawn clients second
-  std::vector<std::thread> threads;
-  for (auto &client : m_clients) {
-    std::cout << "firing thread for client " << client->m_id << std::endl;
-    threads.emplace_back(std::thread(clientWork));
-  }
+  //std::vector<std::thread> threads;
+  //for (auto &client : m_clients) {
+  //  std::cout << "firing thread for client " << client->m_id << std::endl;
+  //  threads.emplace_back(std::thread(clientWork));
+  //}
 
-  for (auto &thread : threads) {
-    thread.join();
-  }
+  //for (auto &thread : threads) {
+  //  thread.join();
+  //}
 }
