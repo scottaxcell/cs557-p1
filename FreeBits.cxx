@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <string.h> // memset, bzero
 #include <iostream>
 
 #include "Manager.h"
