@@ -16,7 +16,7 @@
 #include <arpa/inet.h>
 // end
 
-void sendUDPPortToManager(int tcpport, int udpport, std::string &ipaddr)
+void sendUDPPortToManager(int managerport, int trackerport, std::string &ipaddr)
 {
 	int sockfd;
 	struct addrinfo hints, *servinfo;
@@ -25,7 +25,7 @@ void sendUDPPortToManager(int tcpport, int udpport, std::string &ipaddr)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if (getaddrinfo(ipaddr.c_str(), std::to_string(tcpport).c_str(), &hints, &servinfo) != 0) {
+	if (getaddrinfo(ipaddr.c_str(), std::to_string(managerport).c_str(), &hints, &servinfo) != 0) {
 		perror("ERROR on tracker getaddrinfo");
 		exit(1);
 	}
@@ -40,18 +40,17 @@ void sendUDPPortToManager(int tcpport, int udpport, std::string &ipaddr)
 		exit(1);
 	}
 
-	//inet_ntop(servinfo->ai_family, get_in_addr((struct sockaddr *)servinfo->ai_addr), server_ip, sizeof(server_ip));
 	printf("Connected!\n");
 
-  const char* msg = "Hello Manager, I'm the tracker!";
-  int bytes_sent = -1, len = strlen(msg);
+  std::string msg("T_UDP_PORT:"+std::to_string(trackerport));
+  int bytes_sent = -1, len = strlen(msg.c_str());
   while (bytes_sent != len) {
-    bytes_sent = send(sockfd, msg, len, 0);
+    bytes_sent = send(sockfd, msg.c_str(), len, 0);
   }
 
 }
 
-void setupManagerTCPComms(int &tcpsock, int &tcpport, std::string &ipaddr)
+void setupManagerTCPComms(int &tcpsock, int &managerport, std::string &ipaddr)
 {
   struct sockaddr_in serv_addr;
 
@@ -82,14 +81,14 @@ void setupManagerTCPComms(int &tcpsock, int &tcpport, std::string &ipaddr)
      perror("ERROR on getsockname");
      exit(1);
   }
-  tcpport = ntohs(serv_addr.sin_port);
+  managerport = ntohs(serv_addr.sin_port);
   ipaddr = inet_ntoa(serv_addr.sin_addr);
 
   printf("Manager IP address is: %s\n", ipaddr.c_str());
-  printf("Manager TCP port is: %d\n", tcpport);
+  printf("Manager TCP port is: %d\n", managerport);
 }
 
-void setupTrackerUDPComms(int &udpsock, int &udpport)
+void setupTrackerUDPComms(int &udpsock, int &trackerport)
 {
   struct sockaddr_in udp_serv_addr;
 
@@ -119,9 +118,49 @@ void setupTrackerUDPComms(int &udpsock, int &udpport)
      perror("ERROR on tracker getsockname");
      exit(1);
   }
-  udpport = ntohs(udp_serv_addr.sin_port);
+  trackerport = ntohs(udp_serv_addr.sin_port);
   printf("Tracker UDP IP address is: %s\n", inet_ntoa(udp_serv_addr.sin_addr));
-  printf("Tracker UDP port is: %d\n", udpport);
+  printf("Tracker UDP port is: %d\n", trackerport);
+}
+
+void trackerDoWork(int &udpsock)
+{
+
+}
+
+void clientDoWork(int clientid, int &managerport)
+{
+	int sockfd;
+	struct addrinfo hints, *servinfo;
+  std::string ipaddr; // TODO not sure I need this
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+
+	if (getaddrinfo(ipaddr.c_str(), std::to_string(managerport).c_str(), &hints, &servinfo) != 0) {
+		perror("ERROR on tracker getaddrinfo");
+		exit(1);
+	}
+
+	if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) < 0) {
+		perror("ERROR on tracker tcp socket");
+		exit(1);
+	}
+
+	if (connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) < 0) {
+		perror("ERROR on tracker tcp connect");
+		exit(1);
+	}
+
+	printf("Connected!\n");
+
+  std::string msg("CLIENT_ID:"+std::to_string(clientid));
+  int bytes_sent = -1, len = strlen(msg.c_str());
+  while (bytes_sent != len) {
+    bytes_sent = send(sockfd, msg.c_str(), len, 0);
+  }
+
 }
 
 int main( int argc, const char* argv[] )
@@ -144,16 +183,18 @@ int main( int argc, const char* argv[] )
   //
   int tcpsock = 0;
   int newtcpsock = 0;
-  int tcpport = 0;
+  int managerport = 0;
   std::string ipaddr;
-  setupManagerTCPComms(tcpsock, tcpport, ipaddr);
+  setupManagerTCPComms(tcpsock, managerport, ipaddr);
 
   //
   // Spawn tracker and clients
   //
   auto pid = fork();
   if (pid == 0) {
-    // child process
+    //=========================================================================
+    // TRACKER (child process)
+    //=========================================================================
     // create tracker
     // starts listening on for UDP connections
     // reports UDP port number to manager
@@ -164,49 +205,36 @@ int main( int argc, const char* argv[] )
     // setup UDP socket for comms
     //
     int udpsock = 0;
-    int udpport = 0;
-    setupTrackerUDPComms(udpsock, udpport);
-    /*DEBUG*/std::cout << "DBG tracker UDP port = " << udpport << std::endl;
+    int trackerport = 0;
+    setupTrackerUDPComms(udpsock, trackerport);
+    /*DEBUG*/std::cout << "DBG tracker UDP port = " << trackerport << std::endl;
     /*DEBUG*/std::cout << "DBG tracker socket = " << udpsock << std::endl;
     
     //
     // send UDP port to manager via TCP
     //
-    sendUDPPortToManager(tcpport, udpport, ipaddr);
+    sendUDPPortToManager(managerport, trackerport, ipaddr);
+
+    //
+    // list for clients and give them what they want
+    //
+    trackerDoWork(udpsock);
 
     /*DEBUG*/std::cout << "DBG exiting child process for tracker pid = " << getpid() << std::endl;
     exit(0);
   } else if (pid > 0) {
-    // parent process
-    // spawn clients
-    //pid_t pids[manager->m_clients.size()];
-    int clientid = 0;
-    for (auto &client : manager->m_clients) {
-      clientid = client->m_id;
-      auto clientpid = fork();
-      if (clientpid == 0) {
-        // child process
-        // client process
-        // do client work
-        /*DEBUG*/std::cout << "DBG created child process for client " << clientid << " pid = " << getpid() << std::endl;
-        /*DEBUG*/std::cout << "DBG exiting child process for client " << clientid << " pid = " << getpid() << std::endl;
-        exit(0);
-      } else if (clientpid == -1) {
-        // client fork failed
-        perror("ERROR on client fork");
-        exit(1); 
-      }
-    }
+    //=========================================================================
+    // MANAGER (parent process)
+    //=========================================================================
   
     //
-    // listen for trackers and clients - give them what they want
+    // listen for tracker letting us know her UDP
     //
     char buffer[256];
     struct sockaddr_in cli_addr;
     
     listen(tcpsock,5);
 
-    // accept actual connection from client
 	  socklen_t clilen;
 	  clilen = sizeof(cli_addr);
 	  newtcpsock = accept(tcpsock, (struct sockaddr *)&cli_addr, &clilen);
@@ -216,14 +244,76 @@ int main( int argc, const char* argv[] )
       exit(1);
     }
     bzero(buffer, 256);
-    int recv_bytes = recv(newtcpsock, buffer, sizeof(buffer), 0);
+    int recv_bytes = recv(newtcpsock, buffer, sizeof(buffer), 0); // is blocking
+    // TODO error cheking recv_bytes
     /*DEBUG*/std::cout << "DBG manager TCP received a message.." << std::endl;
+    // TODO add check to make sure we're getting T_UDP_PORT:<portnum>
     printf("\"");
     for (int i = 0; i <= recv_bytes; i++) {
       printf("%c", buffer[i]);
     }
     printf("\"\n");
+    std::string tmp(buffer);
+    std::string tport(tmp.substr(11));
+    std::cout << "TRACKER UDP PORT (str) = " << tport << std::endl;
+    int trackerport = std::stoi(tport);
+    std::cout << "TRACKER UDP PORT (int) = " << trackerport << std::endl;
     
+    //
+    // spawn clients
+    //
+    int clientid = 0;
+    for (auto &client : manager->m_clients) {
+      clientid = client->m_id;
+      auto clientpid = fork();
+      if (clientpid == 0) {
+        //=========================================================================
+        // CLIENT (child process)
+        //=========================================================================
+        /*DEBUG*/std::cout << "DBG created child process for client " << clientid << " pid = " << getpid() << std::endl;
+        clientDoWork(clientid, managerport);
+        sleep(3);
+        /*DEBUG*/std::cout << "DBG exiting child process for client " << clientid << " pid = " << getpid() << std::endl;
+        exit(0);
+      } else if (clientpid == -1) {
+        // client fork failed
+        perror("ERROR on client fork");
+        exit(1); 
+      }
+      //
+      // listen for newly created client and provide her with configuration data
+      //
+      char buffer[256];
+      struct sockaddr_in cli_addr;
+      
+      listen(tcpsock,5);
+
+	    socklen_t clilen;
+	    clilen = sizeof(cli_addr);
+	    newtcpsock = accept(tcpsock, (struct sockaddr *)&cli_addr, &clilen);
+
+      if (newtcpsock < 0) {
+        perror("ERROR on manager accept");
+        exit(1);
+      }
+
+      bzero(buffer, sizeof(buffer));
+      int recv_bytes = recv(newtcpsock, buffer, sizeof(buffer), 0);
+      if (recv_bytes == 0) {
+        printf("Manager TCP socket closed.\n");
+      } else if (recv_bytes == -1) {
+        perror("ERROR manager recv failed");
+        exit(1);
+      } else {
+        /*DEBUG*/std::cout << "DBG manager TCP received a message.." << std::endl;
+        printf("\"");
+        for (int i = 0; i <= recv_bytes; i++) {
+          printf("%c", buffer[i]);
+        }
+        printf("\"\n");
+      }
+    }
+
     //
     // Wait for all children processes to exit
     //
