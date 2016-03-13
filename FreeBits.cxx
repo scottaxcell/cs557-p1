@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <string.h> // memset, bzero
 #include <iostream>
+#include <sstream>
 
 #include "Manager.h"
 
@@ -17,6 +18,35 @@
 #include <arpa/inet.h>
 // end
 
+// TODO move to utility header
+int sendall(int s, unsigned char *buf, int *len)
+{
+  int total = 0;        // how many bytes we've sent
+  int bytesleft = *len; // how many we have left to send
+  int n;
+
+  while(total < *len) {
+    n = send(s, buf+total, bytesleft, 0);
+    if (n == -1) { break; }
+    total += n;
+    bytesleft -= n;
+  }
+
+  *len = total; // return number actually sent here
+
+  return n==-1?-1:0; // return -1 on failure, 0 on success
+}
+
+// Roll my own to_string since std::to_string is not part of std
+// and cannot be used on the DETER machines
+template <typename T>
+std::string to_string(T value)
+{
+  std::ostringstream os;
+  os << value;
+  return os.str();
+}
+
 void sendUDPPortToManager(int managerport, int trackerport, std::string &ipaddr)
 {
 	int sockfd;
@@ -26,24 +56,24 @@ void sendUDPPortToManager(int managerport, int trackerport, std::string &ipaddr)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if (getaddrinfo(ipaddr.c_str(), std::to_string(managerport).c_str(), &hints, &servinfo) != 0) {
-		perror("ERROR on tracker getaddrinfo");
+	if (getaddrinfo(ipaddr.c_str(), to_string(managerport).c_str(), &hints, &servinfo) != 0) {
+		perror("ERROR (sendUDPPortToManager) on tracker getaddrinfo");
 		exit(1);
 	}
 
 	if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) < 0) {
-		perror("ERROR on tracker tcp socket");
+		perror("ERROR (sendUDPPortToManager) on tracker tcp socket");
 		exit(1);
 	}
 
 	if (connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) < 0) {
-		perror("ERROR on tracker tcp connect");
+		perror("ERROR (sendUDPPortToManager) on tracker tcp connect");
 		exit(1);
 	}
 
-	printf("Connected!\n");
+	printf("(sendUDPPortToManager) Connected!\n");
 
-  std::string msg("T_UDP_PORT:"+std::to_string(trackerport));
+  std::string msg("T_UDP_PORT:"+to_string(trackerport));
   int bytes_sent = -1, len = strlen(msg.c_str());
   while (bytes_sent != len) {
     bytes_sent = send(sockfd, msg.c_str(), len, 0);
@@ -59,7 +89,7 @@ void setupManagerTCPComms(int &tcpsock, int &managerport, std::string &ipaddr)
   tcpsock = socket(AF_INET, SOCK_STREAM, 0);
   
   if (tcpsock < 0) {
-     perror("ERROR opening socket");
+     perror("ERROR (setupManagerTCPComms) opening socket");
      exit(1);
   }
   
@@ -72,14 +102,14 @@ void setupManagerTCPComms(int &tcpsock, int &managerport, std::string &ipaddr)
   
   /* Now bind the host address using bind() call.*/
   if (bind(tcpsock, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
-     perror("ERROR on binding");
+     perror("ERROR (setupManagerTCPComms) on binding");
      exit(1);
   }
      
   /* Get the port number for communicating with spawned processes */
   socklen_t serv_addr_size = sizeof(serv_addr);
   if (getsockname(tcpsock, (struct sockaddr *) &serv_addr, &serv_addr_size) == -1) {
-     perror("ERROR on getsockname");
+     perror("ERROR (setupManagerTCPComms) on getsockname");
      exit(1);
   }
   managerport = ntohs(serv_addr.sin_port);
@@ -96,7 +126,7 @@ void setupTrackerUDPComms(int &udpsock, int &trackerport)
   // create UDP socket
   udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (udpsock < 0) {
-    perror("ERROR on tracker UDP socket");
+    perror("ERROR (setupTrackerUDPComms) on tracker UDP socket");
     exit(1);
   }
 
@@ -109,14 +139,14 @@ void setupTrackerUDPComms(int &udpsock, int &trackerport)
 
   /* Now bind the host address using bind() call.*/
   if (bind(udpsock, (struct sockaddr *) &udp_serv_addr, sizeof(udp_serv_addr)) < 0) {
-     perror("ERROR on tracker binding UDP port");
+     perror("ERROR (setupTrackerUDPComms) tracker binding UDP port");
      exit(1);
   }
      
   /* Get the port number for communicating with spawned processes */
   socklen_t udp_serv_addr_size = sizeof(udp_serv_addr);
   if (getsockname(udpsock, (struct sockaddr *) &udp_serv_addr, &udp_serv_addr_size) == -1) {
-     perror("ERROR on tracker getsockname");
+     perror("ERROR (setupTrackerUDPComms) on tracker getsockname");
      exit(1);
   }
   trackerport = ntohs(udp_serv_addr.sin_port);
@@ -126,7 +156,7 @@ void setupTrackerUDPComms(int &udpsock, int &trackerport)
 
 void trackerDoWork(int &udpsock)
 {
-
+  //sleep(10);
 }
 
 void clientDoWork(int clientid, int &managerport)
@@ -139,27 +169,61 @@ void clientDoWork(int clientid, int &managerport)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if (getaddrinfo(ipaddr.c_str(), std::to_string(managerport).c_str(), &hints, &servinfo) != 0) {
-		perror("ERROR on tracker getaddrinfo");
+	//if (getaddrinfo(ipaddr.c_str(), std::to_string(managerport).c_str(), &hints, &servinfo) != 0) {
+	if (getaddrinfo(nullptr, std::to_string(managerport).c_str(), &hints, &servinfo) != 0) {
+		perror("ERROR (clientDoWork) on tracker getaddrinfo");
 		exit(1);
 	}
 
 	if ((sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol)) < 0) {
-		perror("ERROR on tracker tcp socket");
+		perror("ERROR (clientDoWork) on tracker tcp socket");
 		exit(1);
 	}
 
 	if (connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) < 0) {
-		perror("ERROR on tracker tcp connect");
+		perror("ERROR (clientDoWork) on tracker tcp connect");
 		exit(1);
 	}
 
-	printf("Connected!\n");
+	printf("(clientDoWork) Connected!\n");
 
-  std::string msg("CLIENT_ID:"+std::to_string(clientid));
+  // Get my configuration information
+  // packet delay
+  // packet drop probability
+  //
+  // request format: CID:0:NEED_CFG
+  std::string msg("CID:"+std::to_string(clientid)+":NEED_CFG");
   int bytes_sent = -1, len = strlen(msg.c_str());
   while (bytes_sent != len) {
     bytes_sent = send(sockfd, msg.c_str(), len, 0);
+  }
+
+  // receive format: MGR:123:123
+  char buffer[256];
+  bzero(buffer, sizeof(buffer));
+  int recv_bytes = recv(sockfd, buffer, sizeof(buffer), 0);
+  if (recv_bytes == 0) {
+    printf("Client TCP socket closed.\n");
+  } else if (recv_bytes == -1) {
+    perror("ERROR client recv failed");
+    exit(1);
+  } else {
+    /*DEBUG*/std::cout << "DBG client TCP received a message.." << std::endl;
+    printf("\"");
+    for (int i = 0; i <= recv_bytes; i++) {
+      printf("%c", buffer[i]);
+    }
+    printf("\"\n");
+
+    std::string recvmsg(buffer);
+    if (recvmsg.substr(0,4) == "MGR:") {
+      /*DEBUG*/std::cout << "manager sent me some cfg data.." << std::endl;
+      std::stringstream ss;
+      for (int i = 4; i <= recv_bytes; i++) {
+        if (isdigit(buffer[i]))
+          ss << buffer[i];
+      }
+    }
   }
 
 }
@@ -257,7 +321,7 @@ int main( int argc, const char* argv[] )
     std::string tmp(buffer);
     std::string tport(tmp.substr(11));
     std::cout << "TRACKER UDP PORT (str) = " << tport << std::endl;
-    int trackerport = std::stoi(tport);
+    int trackerport = atoi(tport.c_str());
     std::cout << "TRACKER UDP PORT (int) = " << trackerport << std::endl;
     
     //
@@ -273,7 +337,7 @@ int main( int argc, const char* argv[] )
         //=========================================================================
         /*DEBUG*/std::cout << "DBG created child process for client " << clientid << " pid = " << getpid() << std::endl;
         clientDoWork(clientid, managerport);
-        sleep(3);
+        sleep(2);
         /*DEBUG*/std::cout << "DBG exiting child process for client " << clientid << " pid = " << getpid() << std::endl;
         exit(0);
       } else if (clientpid == -1) {
@@ -312,6 +376,30 @@ int main( int argc, const char* argv[] )
           printf("%c", buffer[i]);
         }
         printf("\"\n");
+        
+        std::string recvmsg(buffer);
+        if (recvmsg.substr(0,4) == "CID:") {
+          /*DEBUG*/std::cout << "client contacted me.." << std::endl;
+          std::stringstream ss;
+          for (int i = 0; i <= recv_bytes; i++) {
+            if (isdigit(buffer[i]))
+              ss << buffer[i];
+          }
+          int cid;
+          ss >> cid;
+          /*DEBUG*/std::cout << "client " << cid << " contacted me.." << std::endl;
+          for (auto &client : manager->m_clients) {
+            if (client->m_id == cid) {
+              std::string cfgdata("MGR:"+to_string(client->m_packetdelay)+":"+to_string(client->m_packetdropprob));
+              int sendsize = cfgdata.size();
+              int rc = sendall(newtcpsock, (unsigned char*)cfgdata.c_str(), &sendsize);
+              if (rc != 0) {
+                printf("ERROR: failed to send cfgdata packet\n");
+                exit(1);
+              }
+            }
+          }
+        }
       }
     }
 
