@@ -110,6 +110,33 @@ void clientDoWork(int clientid, int managerport)
   fprintf(fp, "tPort %d\n", trackerport);
   fprintf(fp, "myPort %d\n", clientport);
 
+  // send a test message to the tracker
+  struct sockaddr_in si_other;
+  int udpsock;
+  socklen_t slen;
+  slen = sizeof(si_other);
+  //bzero(buffer, 256);
+  //bzero(msg, 256);
+	memset(&msg, '\0', sizeof(msg));
+	memset(&buffer, '\0', sizeof(buffer));
+  if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+    perror("ERROR (clientDoWork) UDP socket creation");
+    exit(1);
+  }
+  memset((char *) &si_other, 0, sizeof(si_other));
+  si_other.sin_family = AF_INET;
+  si_other.sin_port = htons(trackerport); // send to the tracker
+  sprintf(msg, "FROM_CLIENT %d test datagram", clientid);
+  printf("client about to send %s\n", msg);
+  bytes_sent = 0;
+  if ((bytes_sent = sendto(udpsock, msg, strlen(msg), 0, (struct sockaddr*)&si_other, slen)) == -1) {
+    perror("ERROR (clientDoWork) sendto");
+    exit(1);
+  }
+  
+  printf("client %d send %d bytes to tracker\n", clientid, bytes_sent);
+
+
 }
 
 //
@@ -128,6 +155,25 @@ void trackerDoWork(int udpsock, int trackerport)
   fprintf(fp, "type Tracker\n");
   fprintf(fp, "pid %d\n", getpid());
   fprintf(fp, "tPort %d\n", trackerport);
+
+  socklen_t fromlen;
+  struct sockaddr_in addr;
+  fromlen = sizeof(addr);
+  while (true) {
+    unsigned char buffer[256];
+    int recv_bytes = recvfrom(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr*)&addr, &fromlen);
+    if (recv_bytes == -1) {
+      perror("ERROR manager recv failed");
+      exit(1);
+    } else {
+      printf("DBG tracker UDP received a message..\n");
+      printf("\"");
+      for (int i = 0; i <= recv_bytes; i++) {
+        printf("%c", buffer[i]);
+      }
+      printf("\"\n");
+    }
+  }
 }
 
 
@@ -428,68 +474,31 @@ int main(int argc, const char* argv[])
             }
           }
         }
-        //    if (client->m_id == cid) {
-        //      std::string cfgdata("MGR:"+to_string(client->m_packetdelay)+":"+to_string(client->m_packetdropprob));
-        //      int sendsize = cfgdata.size();
-        //      int rc = sendall(newtcpsock, (unsigned char*)cfgdata.c_str(), &sendsize);
-        //      if (rc != 0) {
-        //        printf("ERROR: failed to send cfgdata packet\n");
-        //        exit(1);
-        //      }
-        //    }
-        //  }
-        //}
-        //std::string recvmsg(buffer);
-        //if (recvmsg.substr(0,4) == "CID:") {
-        //  /*DEBUG*/std::cout << "client contacted me.." << std::endl;
-        //  std::stringstream ss;
-        //  for (int i = 0; i <= recv_bytes; i++) {
-        //    if (isdigit(buffer[i]))
-        //      ss << buffer[i];
-        //  }
-        //  int cid;
-        //  ss >> cid;
-        //  /*DEBUG*/std::cout << "client " << cid << " contacted me.." << std::endl;
-        //  for (auto &client : manager->m_clients) {
-        //    if (client->m_id == cid) {
-        //      std::string cfgdata("MGR:"+to_string(client->m_packetdelay)+":"+to_string(client->m_packetdropprob));
-        //      int sendsize = cfgdata.size();
-        //      int rc = sendall(newtcpsock, (unsigned char*)cfgdata.c_str(), &sendsize);
-        //      if (rc != 0) {
-        //        printf("ERROR: failed to send cfgdata packet\n");
-        //        exit(1);
-        //      }
-        //    }
-        //  }
-        //}
       }
     }
-    sleep(3);
-
+    sleep(5);
+    ////
+    //// Wait for all children processes to exit
+    ////
+    //while (true) {
+    //  int status;
+    //  pid_t done = wait(&status);
+    //  if (done == -1) {
+    //    if (errno == ECHILD)
+    //      break; // no more child processes
+    //  } else {
+    //    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    //      perror("pid exit failed");
+    //      exit(1);
+    //    }
+    //  }
+    //}
+    printf("DBG exiting manager process %d", getpid());
+  } else {
+    // fork failed
+    perror("ERROR on fork");
+    exit(1); 
   }
-
-  //  //
-  //  // Wait for all children processes to exit
-  //  //
-  //  while (true) {
-  //    int status;
-  //    pid_t done = wait(&status);
-  //    if (done == -1) {
-  //      if (errno == ECHILD)
-  //        break; // no more child processes
-  //    } else {
-  //      if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-  //        std::cerr << "pid " << done << " failed" << std::endl;
-  //        exit(1);
-  //      }
-  //    }
-  //  }
-  //  /*DEBUG*/std::cout << "DBG exiting manager process " << getpid() << std::endl;
-  //} else {
-  //  // fork failed
-  //  perror("ERROR on fork");
-  //  exit(1); 
-  //}
 
   return 0;
 }
