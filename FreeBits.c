@@ -22,7 +22,7 @@ void clientDoWork(int clientid, int managerport)
 {
 	int sockfd;
 	struct addrinfo hints, *servinfo;
-  char *ipaddr = NULL; // TODO not sure I need this
+  //char *ipaddr = NULL; // TODO not sure I need this
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
@@ -115,8 +115,6 @@ void clientDoWork(int clientid, int managerport)
   int udpsock;
   socklen_t slen;
   slen = sizeof(si_other);
-  //bzero(buffer, 256);
-  //bzero(msg, 256);
 	memset(&msg, '\0', sizeof(msg));
 	memset(&buffer, '\0', sizeof(buffer));
   if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
@@ -129,7 +127,7 @@ void clientDoWork(int clientid, int managerport)
   sprintf(msg, "FROM_CLIENT %d test datagram", clientid);
   printf("client about to send %s\n", msg);
   bytes_sent = 0;
-  if ((bytes_sent = sendto(udpsock, msg, strlen(msg), 0, (struct sockaddr*)&si_other, slen)) == -1) {
+  if ((bytes_sent = sendto(udpsock, msg, sizeof(msg), 0, (struct sockaddr*)&si_other, slen)) == -1) {
     perror("ERROR (clientDoWork) sendto");
     exit(1);
   }
@@ -315,9 +313,21 @@ int main(int argc, const char* argv[])
   //
   struct Manager *mgr = readMgrCfg();
   for (int i = 0; i < mgr->m_numclients; i++) {
-    printf("Client %d: %d %d\n", mgr->m_clients[i].m_id, mgr->m_clients[i].m_pktdelay, mgr->m_clients[i].m_pktprob);
+    struct Client *client = &(mgr->m_clients[i]);
+    printf("Client %d:\n", client->m_id);
+    printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->m_pktdelay,
+      client->m_pktprob, client->m_numfiles, client->m_numtasks);
+
+    for (int i = 0; i < client->m_numfiles; i++) {
+      printf("file %s\n", client->m_files[i]);
+    } 
+
+    for (int i = 0; i < client->m_numtasks; i++) {
+      printf("task %d:\n", i);
+      struct Task *task = (struct Task *)&(client->m_tasks[i]);
+      printf("%s %d %d\n", task->m_file, task->m_starttime, task->m_share);
+    } 
   }
-  
 
 
   //
@@ -493,7 +503,7 @@ int main(int argc, const char* argv[])
     //    }
     //  }
     //}
-    printf("DBG exiting manager process %d", getpid());
+    printf("DBG exiting manager process %d\n", getpid());
   } else {
     // fork failed
     perror("ERROR on fork");

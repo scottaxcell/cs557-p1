@@ -31,6 +31,8 @@ struct Manager* readMgrCfg()
   bool readNumClients = false;
   bool readReqTimeout = false;
   bool readPktDelays = false;
+  bool readWhoHasFiles = false;
+  bool readDownloadTasks = false;
 
   FILE *fp;
   char *line = NULL;
@@ -95,10 +97,56 @@ struct Manager* readMgrCfg()
       client.m_id = cid;
       client.m_pktdelay = delay;
       client.m_pktprob = prob;
+      client.m_numfiles = 0;
+      client.m_numtasks = 0;
       mgr->m_clients[cid] = client;
+      continue;
     }
+
+    // next lines will be client starting files
+    if (!readWhoHasFiles) {
+      int cid;
+      char file[MAX_FILENAME];
+      sscanf(line, "%d %s", &cid, file);
+      //printf("read \"%d %s\"\n", cid, file);
+
+      if (cid == -1) {
+        readWhoHasFiles = true;
+        continue;
+      }
+
+      struct Client *client = &(mgr->m_clients[cid]);
+      snprintf(client->m_files[client->m_numfiles], MAX_FILENAME, "%s", file);
+      client->m_numfiles++;
+      continue;
+    }
+
+    // next lines will be client download tasks
+    if (!readDownloadTasks) {
+      int cid;
+      char file[MAX_FILENAME];
+      int starttime;
+      int share;
+      sscanf(line, "%d %s %d %d", &cid, file, &starttime, &share);
+      //printf("read \"%d %s %d %d\"\n", cid, file, starttime, share);
+
+      if (cid == -1) {
+        readDownloadTasks = true;
+        continue;
+      }
+
+      struct Client *client = &(mgr->m_clients[cid]);
+      struct Task task;
+      snprintf(task.m_file, MAX_FILENAME, "%s", file);
+      task.m_starttime = starttime;
+      task.m_share = share;
+      memcpy(client->m_tasks[client->m_numtasks], &task, sizeof(task));
+      client->m_numtasks++;
+      continue;
+    }
+
     // TODO read in rest of configurations
-    if (readPktDelays)
+    if (readDownloadTasks)
       return mgr;
   }
   
