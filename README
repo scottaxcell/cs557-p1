@@ -2,6 +2,14 @@ Note: Since all communication is between ports on a single host it appears
 that I don't have to worry about any network to host or host to network
 translation of integers in packet payloads.
 
+Using TCP/UDP sockets - good explanations of functions used
 http://beej.us/guide/bgnet/
+
+Another client and server exmaple
 http://www.tutorialspoint.com/unix_sockets/socket_server_example.htm
+
+Example using UDP sockets
 http://www.binarytides.com/programming-udp-sockets-c-linux/
+
+Writing data out as a hex string
+http://stackoverflow.com/questions/11992677/printf-raw-data-to-a-fixed-length-hex-output
