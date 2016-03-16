@@ -2,6 +2,20 @@
 #define MAX_FILES 25
 #define MAX_CLIENTS 25
 
+enum MSGTYPE {
+  GROUP_SHOW_INTEREST, // client tells tracker about itself
+  GROUP_ASSIGN, // tracker tells client about other clients
+  CLNT_INFO_REQ, // client asks other client for file info
+  CLNT_INFO_REP, // client tells other client about file segments it has
+  CLNT_SEG_REQ, // client asks other client for a file segment
+  CLNT_SEG_REP // client sends other client file segment
+
+};
+
+
+
+
+
 struct Task
 {
   int m_starttime;

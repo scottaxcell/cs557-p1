@@ -48,10 +48,6 @@ void clientDoWork(int clientid, int32_t managerport)
 	printf("(clientDoWork) connected to the manager!\n");
 
   // Get my configuration information from the manager
-  // packet delay
-  // packet drop probability
-  //int pktdelay = 0;
-  //int pktprob = 0;
   int32_t trackerport = 0;
   int clientport = 0;
   struct Client *client;
@@ -66,8 +62,8 @@ void clientDoWork(int clientid, int32_t managerport)
   //printf("client sent %d byte msg\n", bytes_sent);
 
   // receive number of files
-  unsigned char buffer[sizeof(struct Client)];
-  unsigned char *p_buffer = (unsigned char *)&buffer;
+  u_char buffer[sizeof(struct Client)];
+  u_char *p_buffer = (u_char *)&buffer;
   bzero(buffer, sizeof(buffer));
   int totalRecv = 0, recv_bytes = 0;
   while (totalRecv < sizeof(struct Client)) {
@@ -83,7 +79,7 @@ void clientDoWork(int clientid, int32_t managerport)
   printf("DBG client TCP received %d bytes\n", recv_bytes);
   printf("totalRecv = %d\n", totalRecv);
 
-  p_buffer = (unsigned char *)&buffer;
+  p_buffer = (u_char *)&buffer;
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
 
   ///*DEBUG*/printf("Client %d:\n", client->m_id);
@@ -99,7 +95,7 @@ void clientDoWork(int clientid, int32_t managerport)
   ///*DEBUG*/} 
 
   // receive tracker port
-  unsigned char portmsg[sizeof(int32_t)];
+  u_char portmsg[sizeof(int32_t)];
   memset(&portmsg, 0, sizeof(portmsg));
 
   recv_bytes = recv(sockfd, portmsg, sizeof(portmsg), 0);
@@ -154,6 +150,7 @@ void clientDoWork(int clientid, int32_t managerport)
   memset((char *) &si_other, 0, sizeof(si_other));
   si_other.sin_family = AF_INET;
   si_other.sin_port = htons(trackerport); // send to the tracker
+
   sprintf(msg, "FROM_CLIENT %d test datagram", clientid);
   printf("client about to send %s\n", msg);
   bytes_sent = 0;
@@ -163,6 +160,16 @@ void clientDoWork(int clientid, int32_t managerport)
   }
   
   printf("client %d send %d bytes to tracker\n", clientid, bytes_sent);
+
+  // let tracker know my interest GROUP_SHOW_INTEREST
+  // packet formats
+  // packet 1
+  // msgtype (16bit)  client_id(16bit)
+  // packet 2
+  // number of files(16bit)
+  // packet 3
+  // filename(32bytes = 32char)
+  // type(16bit)
 
 
 }
@@ -188,7 +195,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
   //struct sockaddr_in addr;
   //fromlen = sizeof(addr);
   //while (true) {
-  //  unsigned char buffer[256];
+  //  u_char buffer[256];
   //  int recv_bytes = recvfrom(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr*)&addr, &fromlen);
   //  if (recv_bytes == -1) {
   //    perror("ERROR manager recv failed");
@@ -508,7 +515,7 @@ int main(int argc, const char* argv[])
             if (clientid == client->m_id) {
 
               // sending the entire client struct is somewhat wasteful, but does the job.
-              unsigned char msg[sizeof(struct Client)];
+              u_char msg[sizeof(struct Client)];
               struct Client *sc = (struct Client *)serializeClient((struct Client *)client);
               memcpy(&msg, sc, sizeof(struct Client));
               int bytes_sent = -1, len = sizeof(msg);
@@ -536,23 +543,23 @@ int main(int argc, const char* argv[])
       }
     }
 
-    sleep(3);
-    ////
-    //// Wait for all children processes to exit
-    ////
-    //while (true) {
-    //  int status;
-    //  pid_t done = wait(&status);
-    //  if (done == -1) {
-    //    if (errno == ECHILD)
-    //      break; // no more child processes
-    //  } else {
-    //    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-    //      perror("pid exit failed");
-    //      exit(1);
-    //    }
-    //  }
-    //}
+    //sleep(3);
+    //
+    // Wait for all children processes to exit
+    //
+    while (true) {
+      int status;
+      pid_t done = wait(&status);
+      if (done == -1) {
+        if (errno == ECHILD)
+          break; // no more child processes
+      } else {
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+          perror("pid exit failed");
+          exit(1);
+        }
+      }
+    }
     printf("DBG exiting manager process %d\n", getpid());
   } else {
     // fork failed
