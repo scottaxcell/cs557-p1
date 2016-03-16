@@ -30,32 +30,24 @@ void setupManagerTCPComms(int *tcpsock, int *managerport, char **ipaddr);
 //
 int main(int argc, const char* argv[])
 {
-  // Prints each argument on the command line.
-  for( int i = 0; i < argc; i++ )
-  {
-    printf( "arg %d: %s\n", i, argv[i] );
-  }
-
   //
   // Read the configuration file
   //
   struct Manager *mgr = readMgrCfg();
-  //for (int i = 0; i < mgr->m_numclients; i++) {
-  //  struct Client *client = &(mgr->m_clients[i]);
-  //  printf("Client %d:\n", client->m_id);
-  //  printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->m_pktdelay,
-  //    client->m_pktprob, client->m_numfiles, client->m_numtasks);
-
-  //  for (int i = 0; i < client->m_numfiles; i++) {
-  //    printf("file %s\n", client->m_files[i]);
-  //  } 
-
-  //  for (int i = 0; i < client->m_numtasks; i++) {
-  //    printf("task %d:\n", i);
-  //    struct Task *task = (struct Task *)&(client->m_tasks[i]);
-  //    printf("%s %d %d\n", task->m_file, task->m_starttime, task->m_share);
-  //  } 
-  //}
+  ///*DEBUG*/for (int i = 0; i < mgr->numclients; i++) {
+  ///*DEBUG*/  struct Client *client = &(mgr->clients[i]);
+  ///*DEBUG*/  printf("Client %d:\n", client->id);
+  ///*DEBUG*/  printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->pktdelay,
+  ///*DEBUG*/    client->pktprob, client->numfiles, client->numtasks);
+  ///*DEBUG*/  for (int i = 0; i < client->numfiles; i++) {
+  ///*DEBUG*/    printf("file %s\n", client->files[i]);
+  ///*DEBUG*/  } 
+  ///*DEBUG*/  for (int i = 0; i < client->numtasks; i++) {
+  ///*DEBUG*/    printf("task %d:\n", i);
+  ///*DEBUG*/    struct Task *task = (struct Task *)&(client->tasks[i]);
+  ///*DEBUG*/    printf("%s %d %d\n", task->file, task->starttime, task->share);
+  ///*DEBUG*/  } 
+  ///*DEBUG*/}
 
 
   //
@@ -66,10 +58,11 @@ int main(int argc, const char* argv[])
   int32_t managerport = 0;
   char* ipaddr = NULL;
   setupManagerTCPComms(&tcpsock, &managerport, &ipaddr);
-  //printf("tcpsock = %d\n", tcpsock);
-  //printf("newtcpsock = %d\n", newtcpsock);
-  //printf("managerport = %d\n", managerport);
-  //printf("ipaddr = %s\n", ipaddr);
+  ///*DEBUG*/printf("tcpsock = %d\n", tcpsock);
+  ///*DEBUG*/printf("newtcpsock = %d\n", newtcpsock);
+  ///*DEBUG*/printf("managerport = %d\n", managerport);
+  ///*DEBUG*/printf("ipaddr = %s\n", ipaddr);
+
   //
   // Spawn tracker and clients
   //
@@ -82,7 +75,7 @@ int main(int argc, const char* argv[])
     // starts listening on for UDP connections
     // reports UDP port number to manager
     // listen for clients - give them what they want
-    printf("DBG created child process for tracker pid = %d\n", getpid());
+    /*DEBUG*/printf("DBG created child process for tracker pid = %d\n", getpid());
 
     //
     // setup UDP socket for comms
@@ -90,8 +83,8 @@ int main(int argc, const char* argv[])
     int udpsock = 0;
     int32_t trackerport = 0;
     setupTrackerUDPComms(&udpsock, &trackerport);
-    //printf("DBG tracker UDP port = %d\n", trackerport);
-    //printf("DBG tracker socket = %d\n", udpsock);
+    ///*DEBUG*/printf("DBG tracker UDP port = %d\n", trackerport);
+    ///*DEBUG*/printf("DBG tracker socket = %d\n", udpsock);
 
     //
     // send UDP port to manager via TCP
@@ -103,8 +96,12 @@ int main(int argc, const char* argv[])
     //
     trackerDoWork(udpsock, trackerport);
 
-    printf("DBG exiting child process for tracker pid = %d\n", getpid());
+    //
+    // exit
+    //
+    /*DEBUG*/printf("DBG exiting child process for tracker pid = %d\n", getpid());
     exit(0);
+
   } else if (pid > 0) {
     //=========================================================================
     // MANAGER (parent process)
@@ -126,36 +123,28 @@ int main(int argc, const char* argv[])
       perror("ERROR on manager accept");
       exit(1);
     }
-    bzero(buffer, 256);
-    int recv_bytes = recv(newtcpsock, buffer, sizeof(buffer), 0); // is blocking
-    // TODO error cheking recv_bytes
-    //printf("DBG manager TCP received a message..\n");
-    //printf("\"");
-    for (int i = 0; i <= recv_bytes; i++) {
-      //printf("%c", buffer[i]);
-    }
-    //printf("\"\n");
-    
-    
+
     int32_t trackerport;
+    bzero(buffer, 256);
+    recv(newtcpsock, buffer, sizeof(buffer), 0); // is blocking
     sscanf(buffer, "%d", &trackerport);
-    //printf("received msg = %s\n", buffer);
-    //printf("TRACKER UDP PORT %d\n", trackerport);
+    ///*DEBUG*/printf("received msg = %s\n", buffer);
+    ///*DEBUG*/printf("TRACKER UDP PORT %d\n", trackerport);
     
     //
     // spawn clients
     //
     int clientid = 0;
-    for (int i = 0; i < mgr->m_numclients; i++) {
-      clientid = mgr->m_clients[i].m_id;
+    for (int i = 0; i < mgr->numclients; i++) {
+      clientid = mgr->clients[i].id;
       pid_t clientpid = fork();
       if (clientpid == 0) {
         //=========================================================================
         // CLIENT (child process)
         //=========================================================================
-        printf("DBG created child process for client %d with pid = %d\n", clientid, getpid());
+        /*DEBUG*/printf("DBG created child process for client %d with pid = %d\n", clientid, getpid());
         clientDoWork(clientid, managerport);
-        printf("DBG created exiting child process client %d with pid = %d\n", clientid, getpid());
+        /*DEBUG*/printf("DBG created exiting child process client %d with pid = %d\n", clientid, getpid());
         exit(0);
       } else if (clientpid == -1) {
         // client fork failed
@@ -188,21 +177,14 @@ int main(int argc, const char* argv[])
         perror("ERROR manager recv failed");
         exit(1);
       } else {
-        //printf("DBG manager TCP received a message..\n");
-        //printf("\"");
-        //for (int i = 0; i <= recv_bytes; i++) {
-        //  printf("%c", buffer[i]);
-        //}
-        //printf("\"\n");
-
         int clientid;
         char str1[10], str2[10];
         sscanf(buffer, "%s %d %s", str1, &clientid, str2);
         
         if (strcmp(str1, "CID") == 0 && strcmp(str2, "NEED_CFG") == 0) {
-          for (int i = 0; i < mgr->m_numclients; i++) {
-            struct Client *client = &(mgr->m_clients[i]);
-            if (clientid == client->m_id) {
+          for (int i = 0; i < mgr->numclients; i++) {
+            struct Client *client = &(mgr->clients[i]);
+            if (clientid == client->id) {
 
               // sending the entire client struct is somewhat wasteful, but does the job.
               u_char msg[sizeof(struct Client)];
@@ -212,8 +194,8 @@ int main(int argc, const char* argv[])
               while (bytes_sent != len) {
                 bytes_sent = send(newtcpsock, msg, len, 0);
               }
-              //printf("Manager sent %d byte msg\n", bytes_sent);
-              //printf("sizeof(int) %lu\n", sizeof(int));
+              ///*DEBUG*/printf("Manager sent %d byte msg\n", bytes_sent);
+              ///*DEBUG*/printf("sizeof(int) %lu\n", sizeof(int));
 
               // send trackerport
               u_char portmsg[sizeof(int32_t)];
@@ -224,8 +206,8 @@ int main(int argc, const char* argv[])
               while (bytes_sent != len) {
                 bytes_sent = send(newtcpsock, portmsg, len, 0);
               }
-              //printf("Manager sent %d byte msg\n", bytes_sent);
-              //printf("sizeof(int) %lu\n", sizeof(int));
+              ///*DEBUG*/printf("Manager sent %d byte msg\n", bytes_sent);
+              ///*DEBUG*/printf("sizeof(int) %lu\n", sizeof(int));
               break;
             }
           }
@@ -233,7 +215,6 @@ int main(int argc, const char* argv[])
       }
     }
 
-    //sleep(3);
     //
     // Wait for all children processes to exit
     //

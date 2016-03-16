@@ -29,20 +29,20 @@ struct FileInfo
 
 struct Task
 {
-  int m_starttime;
-  int m_share;
-  char m_file[MAX_FILENAME];
+  int starttime;
+  int share;
+  char file[MAX_FILENAME];
 };
 
 struct Client
 {
-  int m_id;
-  int m_pktdelay; // delay (msec)
-  int m_pktprob;  // drop probabilty
-  int m_numfiles;
-  int m_numtasks;
-  char m_files[MAX_FILES][MAX_FILENAME];
-  struct Task m_tasks[MAX_FILES][sizeof(struct Task)];
+  int id;
+  int pktdelay; // delay (msec) - amount of time to wait before replying to another client with a segment
+  int pktprob;  // drop probabilty
+  int numfiles;
+  int numtasks;
+  char files[MAX_FILES][MAX_FILENAME];
+  struct Task tasks[MAX_FILES][sizeof(struct Task)];
 };
 
 void clientDoWork(int clientid, int32_t managerport);

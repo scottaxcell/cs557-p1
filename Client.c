@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <stdbool.h> // bool
 
 #include "Client.h"
 
@@ -15,6 +16,30 @@
 #include <arpa/inet.h>
 // end
 
+/*
+ * timer solution
+ * create a timer for starttime to wake up client for file downloading
+ * int (*fp)();
+ * fp = fileTask(); fork to run this.. downloads or shares a file from clients in a loop
+ * Timers_AddTimer(task->starttime,fp,(int*)1); figure out what we want to pass instead of the 1
+ *
+ * while (true) {
+ *  if timer goes off {
+ *    enable a task
+ *  }
+ *  if files to download {
+ *    group update to tracker
+ *    group update to clients in group
+ *  }
+ *
+ *  s = select()
+ *  if (s > 0) {
+ *    handle request from client or tracker
+ *  }
+ *
+ * }
+ */
+
 //
 // Client worker
 //
@@ -22,7 +47,6 @@ void clientDoWork(int clientid, int32_t managerport)
 {
 	int sockfd;
 	struct addrinfo hints, *servinfo;
-  //char *ipaddr = NULL; // TODO not sure I need this
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
@@ -82,16 +106,16 @@ void clientDoWork(int clientid, int32_t managerport)
   p_buffer = (u_char *)&buffer;
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
 
-  ///*DEBUG*/printf("Client %d:\n", client->m_id);
-  ///*DEBUG*/printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->m_pktdelay,
-  ///*DEBUG*/  client->m_pktprob, client->m_numfiles, client->m_numtasks);
-  ///*DEBUG*/for (int i = 0; i < client->m_numfiles; i++) {
-  ///*DEBUG*/  printf("file: %s\n", client->m_files[i]);
+  ///*DEBUG*/printf("Client %d:\n", client->id);
+  ///*DEBUG*/printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->pktdelay,
+  ///*DEBUG*/  client->pktprob, client->numfiles, client->numtasks);
+  ///*DEBUG*/for (int i = 0; i < client->numfiles; i++) {
+  ///*DEBUG*/  printf("file: %s\n", client->files[i]);
   ///*DEBUG*/} 
-  ///*DEBUG*/for (int i = 0; i < client->m_numtasks; i++) {
+  ///*DEBUG*/for (int i = 0; i < client->numtasks; i++) {
   ///*DEBUG*/  printf("task %d:\n", i);
-  ///*DEBUG*/  struct Task *task = (struct Task *)&(client->m_tasks[i]);
-  ///*DEBUG*/  printf("%s %d %d\n", task->m_file, task->m_starttime, task->m_share);
+  ///*DEBUG*/  struct Task *task = (struct Task *)&(client->tasks[i]);
+  ///*DEBUG*/  printf("%s %d %d\n", task->file, task->starttime, task->share);
   ///*DEBUG*/} 
 
   // receive tracker port
@@ -136,48 +160,35 @@ void clientDoWork(int clientid, int32_t managerport)
   fprintf(fp, "tPort %d\n", trackerport);
   fprintf(fp, "myPort %d\n", clientport);
 
-  // send a test message to the tracker
-  struct sockaddr_in si_other;
-  int udpsock;
-  socklen_t slen;
-  slen = sizeof(si_other);
-	memset(&msg, '\0', sizeof(msg));
-	memset(&buffer, '\0', sizeof(buffer));
-  if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-    perror("ERROR (clientDoWork) UDP socket creation");
-    exit(1);
-  }
-  memset((char *) &si_other, 0, sizeof(si_other));
-  si_other.sin_family = AF_INET;
-  si_other.sin_port = htons(trackerport); // send to the tracker
+  //// send a test message to the tracker
+  //struct sockaddr_in si_other;
+  //int udpsock;
+  //socklen_t slen;
+  //slen = sizeof(si_other);
+  //if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+  //  perror("ERROR (clientDoWork) UDP socket creation");
+  //  exit(1);
+  //}
+  //memset((char *) &si_other, 0, sizeof(si_other));
+  //si_other.sin_family = AF_INET;
+  //si_other.sin_port = htons(trackerport); // set tracker port we want to send to
 
-  sprintf(msg, "FROM_CLIENT %d test datagram", clientid);
-  printf("client about to send %s\n", msg);
-  bytes_sent = 0;
-  if ((bytes_sent = sendto(udpsock, msg, sizeof(msg), 0, (struct sockaddr*)&si_other, slen)) == -1) {
-    perror("ERROR (clientDoWork) sendto");
-    exit(1);
-  }
-  
-  printf("client %d send %d bytes to tracker\n", clientid, bytes_sent);
-
-  // let tracker know my interest GROUP_SHOW_INTEREST
-  // packet formats
-  // packet 1
-  // msgtype (16bit)  client_id(16bit)
-  // packet 2
-  // number of files(16bit)
-  // packet 3
-  // filename(32bytes = 32char)
-  // type(16bit)
+	//memset(&msg, '\0', sizeof(msg));
+  //sprintf(msg, "FROM_CLIENT %d test datagram", clientid);
+  //bytes_sent = 0;
+  //if ((bytes_sent = sendto(udpsock, msg, sizeof(msg), 0, (struct sockaddr*)&si_other, slen)) == -1) {
+  //  perror("ERROR (clientDoWork) sendto");
+  //  exit(1);
+  //}
+  //printf("client %d send %d bytes to tracker\n", clientid, bytes_sent);
 
   // TODO must wait till our starttime
 
   // TODO figure out current file status
   struct FileInfo files[MAX_FILES];
   int numHaveFiles = 0;
-  for (int i = 0; i < client->m_numfiles; i++) {
-    char *filename = (char *)&(client->m_files[i]);
+  for (int i = 0; i < client->numfiles; i++) {
+    char *filename = (char *)&(client->files[i]);
     FILE *fp = fopen(filename, "rb");
     if (fp == NULL) {
       printf("Cannot open file %s\n", filename);
@@ -206,10 +217,96 @@ void clientDoWork(int clientid, int32_t managerport)
   /*DEBUG*/  printf("Have file %s of size %lu with %d segments\n", fi->name, fi->size, fi->numsegments);
   /*DEBUG*/}
 
-  // TODO 
+  // one-to-one file transfer testing
+  if (client->numtasks > 0) {
+    struct Task *t = (struct Task *)&client->tasks[0];
+    //
+    // GROUP_SHOW_INTEREST (c -> t)
+    //
+    int16_t n_msgtype = htons(0); // GROUP_SHOW_INTEREST
+    int16_t n_cid = htons(client->id);
+    int16_t n_numfiles = htons(1);
+    int16_t n_type;
+    int16_t n_pktsize;
 
+    // figure out type
+    bool haveFileAlready = false;
+    for (int i = 0; i < numHaveFiles; i++) {
+      struct FileInfo *fi = &files[i];
+      if (strcmp(fi->name, t->file) == 0) {
+        haveFileAlready = true;
+        break;
+      }
+    }
+    if (!haveFileAlready && t->share == 0) {
+      // request a group, but not willing to share
+      n_type = htons(0);
+    } else if (!haveFileAlready && t->share == 1) {
+      // request a group, and willing to share
+      n_type = htons(1);
+    } else if (haveFileAlready && t->share == 1) {
+      // show interest only, do not need a group, willing to share
+      n_type = htons(2);
+    }
+
+    // Setup UDP socket to Tracker
+    struct sockaddr_in si_other;
+    int udpsock;
+    socklen_t slen;
+    slen = sizeof(si_other);
+    if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+      perror("ERROR (clientDoWork) UDP socket creation");
+      exit(1);
+    }
+    memset((char *) &si_other, 0, sizeof(si_other));
+    si_other.sin_family = AF_INET;
+    si_other.sin_port = htons(trackerport); // set tracker port we want to send to
+
+    {
+      // Create packet and send it
+      // pktsize(16bit)
+      // msgtype (16bit)
+      // client_id(16bit)
+      // numfiles(16bit)
+      // n * filename(32bytes)
+      // type(16bit)
+      int numfiles = 1; // TODO should be dynamic at later phase
+      u_char *pkt = malloc((sizeof(int16_t)*3) + ((32 + sizeof(int16_t)) * numfiles));
+      int16_t pktsize = ((sizeof(int16_t)*3) + ((32 + sizeof(int16_t)) * numfiles));
+      n_pktsize = htons(pktsize);
+	    memset(pkt, 0, pktsize);
+      memcpy(pkt, &n_pktsize, sizeof(int16_t)); // move along 2 bytes
+      memcpy(pkt+2, &n_msgtype, sizeof(int16_t)); // move along 2 bytes
+      memcpy(pkt+4, &n_cid, sizeof(int16_t)); // move along 4 bytes TODO confirm this
+      memcpy(pkt+6, &n_numfiles, sizeof(int16_t)); // move along 6 bytes TODO confirm this
+      memcpy(pkt+8, &t->file, sizeof(t->file)); //+ 8 bytes
+      memcpy(pkt+32, &n_type, sizeof(int16_t)); // move along 32 bytes TODO confirm this
+
+      int bytesSent = -1;
+      int totalBytesSent = 0;
+      while (bytesSent < totalBytesSent) {
+        if ((bytesSent = sendto(udpsock, pkt, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+          perror("ERROR (clientDoWork) sendto");
+          exit(1);
+        }
+        totalBytesSent += bytesSent;
+      }
+      printf("client %d sent %d bytes to tracker\n", client->id, totalBytesSent);
+      free(pkt);
+    }
+    
+    // TODO log the packet that was just sent to tracker
+    
+    {
+    }
+
+  }
   
-  
+
+
+
+  // TODO should terminate if downloading tasks are complete and no
+  // segment requests from other clients for 2 rounds of group update
 
 }
 
@@ -219,20 +316,20 @@ void clientDoWork(int clientid, int32_t managerport)
 struct Client* serializeClient(struct Client *client)
 {
   struct Client *s = malloc(sizeof(struct Client));
-  s->m_id = htonl(client->m_id);
-  s->m_pktdelay = htonl(client->m_pktdelay);
-  s->m_pktprob = htonl(client->m_pktprob);
-  s->m_numfiles = htonl(client->m_numfiles);
-  s->m_numtasks = htonl(client->m_numtasks);
-  for (int i = 0; i < client->m_numfiles; i++) {
-    memcpy(s->m_files[i], &client->m_files[i], MAX_FILENAME);
+  s->id = htonl(client->id);
+  s->pktdelay = htonl(client->pktdelay);
+  s->pktprob = htonl(client->pktprob);
+  s->numfiles = htonl(client->numfiles);
+  s->numtasks = htonl(client->numtasks);
+  for (int i = 0; i < client->numfiles; i++) {
+    memcpy(s->files[i], &client->files[i], MAX_FILENAME);
   }
-  for (int i = 0; i < client->m_numtasks; i++) {
-    struct Task *task = (struct Task*)&(client->m_tasks[i]);
-    struct Task *st = (struct Task*)&(s->m_tasks[i]);
-    st->m_starttime = htonl(task->m_starttime);
-    st->m_share = htonl(task->m_share);
-    memcpy(st->m_file, &task->m_file, MAX_FILENAME);
+  for (int i = 0; i < client->numtasks; i++) {
+    struct Task *task = (struct Task*)&(client->tasks[i]);
+    struct Task *st = (struct Task*)&(s->tasks[i]);
+    st->starttime = htonl(task->starttime);
+    st->share = htonl(task->share);
+    memcpy(st->file, &task->file, MAX_FILENAME);
   }
 
   return s;
@@ -244,20 +341,20 @@ struct Client* serializeClient(struct Client *client)
 struct Client* deserializeClient(struct Client *client)
 {
   struct Client *s = malloc(sizeof(struct Client));
-  s->m_id = ntohl(client->m_id);
-  s->m_pktdelay = ntohl(client->m_pktdelay);
-  s->m_pktprob = ntohl(client->m_pktprob);
-  s->m_numfiles = ntohl(client->m_numfiles);
-  s->m_numtasks = ntohl(client->m_numtasks);
-  for (int i = 0; i < s->m_numfiles; i++) {
-    memcpy(s->m_files[i], &client->m_files[i], MAX_FILENAME);
+  s->id = ntohl(client->id);
+  s->pktdelay = ntohl(client->pktdelay);
+  s->pktprob = ntohl(client->pktprob);
+  s->numfiles = ntohl(client->numfiles);
+  s->numtasks = ntohl(client->numtasks);
+  for (int i = 0; i < s->numfiles; i++) {
+    memcpy(s->files[i], &client->files[i], MAX_FILENAME);
   }
-  for (int i = 0; i < s->m_numtasks; i++) {
-    struct Task *task = (struct Task*)&(client->m_tasks[i]);
-    struct Task *st = (struct Task*)&(s->m_tasks[i]);
-    st->m_starttime = htonl(task->m_starttime);
-    st->m_share = htonl(task->m_share);
-    memcpy(st->m_file, &task->m_file, MAX_FILENAME);
+  for (int i = 0; i < s->numtasks; i++) {
+    struct Task *task = (struct Task*)&(client->tasks[i]);
+    struct Task *st = (struct Task*)&(s->tasks[i]);
+    st->starttime = htonl(task->starttime);
+    st->share = htonl(task->share);
+    memcpy(st->file, &task->file, MAX_FILENAME);
   }
 
   return s;

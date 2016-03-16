@@ -12,19 +12,19 @@
 
 struct Manager
 {
-  const char *m_conf;
-  int m_numclients;
-  int m_reqtimeout; // request timeout
-  struct Client *m_clients;
+  const char *conf;
+  int numclients;
+  int reqtimeout; // request timeout
+  struct Client *clients;
 };
 
 struct Manager* ManagerNew()
 {
   struct Manager *mgr = malloc(sizeof(struct Manager));
-  mgr->m_conf = "manager.conf";
-  mgr->m_numclients = 0;
-  mgr->m_reqtimeout = 0;
-  mgr->m_clients = NULL;
+  mgr->conf = "manager.conf";
+  mgr->numclients = 0;
+  mgr->reqtimeout = 0;
+  mgr->clients = NULL;
   return mgr;
 }
 
@@ -42,16 +42,16 @@ struct Manager* readMgrCfg()
   size_t linecap = 0;
   ssize_t linelen;
 
-  fp = fopen(mgr->m_conf, "r");
+  fp = fopen(mgr->conf, "r");
   if (fp == NULL) {
     perror("ERROR opening manager.conf");
     exit(1);
   }
 
   while ((linelen = getline(&line, &linecap, fp)) != -1) {
-    //printf("Read line of length %zu :\n", linelen);
-    //printf("Read line of lencap %zu :\n", linecap);
-    //printf("%s", line);
+    ///*DEBUG*/printf("Read line of length %zu :\n", linelen);
+    ///*DEBUG*/printf("Read line of lencap %zu :\n", linecap);
+    ///*DEBUG*/printf("%s", line);
 
     // skip commented lines
     if (line[0] == '#')
@@ -64,11 +64,11 @@ struct Manager* readMgrCfg()
     if (!readNumClients) {
       int numclients;
       sscanf(line, "%d", &numclients);
-      //printf("READ number of clients %d\n", numclients);
+      ///*DEBUG*/printf("READ number of clients %d\n", numclients);
       
       struct Client *clients = malloc(numclients * sizeof(struct Client));
-      mgr->m_numclients = numclients;
-      mgr->m_clients = clients;
+      mgr->numclients = numclients;
+      mgr->clients = clients;
       readNumClients = true;
       continue;
     }
@@ -77,8 +77,8 @@ struct Manager* readMgrCfg()
     if (!readReqTimeout) {
       int req;
       sscanf(line, "%d", &req);
-      //printf("READ request timeout %d\n", req);
-      mgr->m_reqtimeout = req;
+      ///*DEBUG*/printf("READ request timeout %d\n", req);
+      mgr->reqtimeout = req;
       readReqTimeout = true;
       continue;
     }
@@ -89,7 +89,7 @@ struct Manager* readMgrCfg()
       int delay;
       int prob;
       sscanf(line, "%d %d %d", &cid, &delay, &prob);
-      //printf("%d %d %d\n", cid, delay, prob);
+      ///*DEBUG*/printf("%d %d %d\n", cid, delay, prob);
 
       if (cid == -1) {
         readPktDelays = true;
@@ -97,12 +97,12 @@ struct Manager* readMgrCfg()
       }
 
       struct Client client;
-      client.m_id = cid;
-      client.m_pktdelay = delay;
-      client.m_pktprob = prob;
-      client.m_numfiles = 0;
-      client.m_numtasks = 0;
-      mgr->m_clients[cid] = client;
+      client.id = cid;
+      client.pktdelay = delay;
+      client.pktprob = prob;
+      client.numfiles = 0;
+      client.numtasks = 0;
+      mgr->clients[cid] = client;
       continue;
     }
 
@@ -111,16 +111,16 @@ struct Manager* readMgrCfg()
       int cid;
       char file[MAX_FILENAME];
       sscanf(line, "%d %s", &cid, file);
-      //printf("read \"%d %s\"\n", cid, file);
+      ///*DEBUG*/printf("read \"%d %s\"\n", cid, file);
 
       if (cid == -1) {
         readWhoHasFiles = true;
         continue;
       }
 
-      struct Client *client = &(mgr->m_clients[cid]);
-      snprintf(client->m_files[client->m_numfiles], MAX_FILENAME, "%s", file);
-      client->m_numfiles++;
+      struct Client *client = &(mgr->clients[cid]);
+      snprintf(client->files[client->numfiles], MAX_FILENAME, "%s", file);
+      client->numfiles++;
       continue;
     }
 
@@ -131,20 +131,20 @@ struct Manager* readMgrCfg()
       int starttime;
       int share;
       sscanf(line, "%d %s %d %d", &cid, file, &starttime, &share);
-      //printf("read \"%d %s %d %d\"\n", cid, file, starttime, share);
+      ///*DEBUG*/printf("read \"%d %s %d %d\"\n", cid, file, starttime, share);
 
       if (cid == -1) {
         readDownloadTasks = true;
         continue;
       }
 
-      struct Client *client = &(mgr->m_clients[cid]);
+      struct Client *client = &(mgr->clients[cid]);
       struct Task task;
-      snprintf(task.m_file, MAX_FILENAME, "%s", file);
-      task.m_starttime = starttime;
-      task.m_share = share;
-      memcpy(client->m_tasks[client->m_numtasks], &task, sizeof(task));
-      client->m_numtasks++;
+      snprintf(task.file, MAX_FILENAME, "%s", file);
+      task.starttime = starttime;
+      task.share = share;
+      memcpy(client->tasks[client->numtasks], &task, sizeof(task));
+      client->numtasks++;
       continue;
     }
 
