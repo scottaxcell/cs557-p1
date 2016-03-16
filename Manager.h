@@ -1,3 +1,6 @@
+#ifndef MANAGER_H
+#define MANAGER_H
+
 #include <stdio.h>   // printf
 #include <stdlib.h>  // sscanf
 #include <ctype.h>   // isdigit
@@ -153,3 +156,4 @@ struct Manager* readMgrCfg()
   return mgr;
 }
 
+#endif
