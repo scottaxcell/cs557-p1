@@ -4,6 +4,7 @@
 #define MAX_FILENAME 33
 #define MAX_FILES 5
 #define MAX_CLIENTS 25
+#define SEGMENT_SIZE 32
 
 enum MSGTYPE {
   GROUP_SHOW_INTEREST, // client tells tracker about itself
@@ -16,6 +17,13 @@ enum MSGTYPE {
 };
 
 
+struct FileInfo
+{
+  int numsegments;
+  long size;
+  char name[MAX_FILENAME];
+  unsigned char *fp;
+};
 
 
 

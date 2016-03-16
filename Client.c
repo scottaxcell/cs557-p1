@@ -171,6 +171,45 @@ void clientDoWork(int clientid, int32_t managerport)
   // filename(32bytes = 32char)
   // type(16bit)
 
+  // TODO must wait till our starttime
+
+  // TODO figure out current file status
+  struct FileInfo files[MAX_FILES];
+  int numHaveFiles = 0;
+  for (int i = 0; i < client->m_numfiles; i++) {
+    char *filename = (char *)&(client->m_files[i]);
+    FILE *fp = fopen(filename, "rb");
+    if (fp == NULL) {
+      printf("Cannot open file %s\n", filename);
+      exit(1);
+    }
+    fseek(fp, 0, SEEK_END);
+    long filesize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    unsigned char *filecontents = (unsigned char*)malloc(filesize);
+    memset(filecontents, 0, filesize);
+    fread(filecontents, filesize, 1, fp);
+    fclose(fp);
+
+    struct FileInfo fileinfo;
+    fileinfo.size = filesize;
+    fileinfo.numsegments = (filesize / SEGMENT_SIZE) + 1;
+    strncpy(fileinfo.name, filename, MAX_FILENAME);
+    fileinfo.fp = filecontents;
+    files[i] = fileinfo;
+    numHaveFiles++;
+  }
+  /*DEBUG*/printf("Has %d files\n", numHaveFiles);
+  /*DEBUG*/for (int i = 0; i < numHaveFiles; i++) {
+  /*DEBUG*/  struct FileInfo *fi = &files[i];
+  /*DEBUG*/  printf("Have file %s of size %lu with %d segments\n", fi->name, fi->size, fi->numsegments);
+  /*DEBUG*/}
+
+  // TODO 
+
+  
+  
 
 }
 
