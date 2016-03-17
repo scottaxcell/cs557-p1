@@ -69,7 +69,7 @@ void clientDoWork(int clientid, int32_t managerport)
 		exit(1);
 	}
 
-	printf("(clientDoWork) connected to the manager!\n");
+	///*DEBUG*/printf("(clientDoWork) connected to the manager!\n");
 
   // Get my configuration information from the manager
   int32_t trackerport = 0;
@@ -100,8 +100,8 @@ void clientDoWork(int clientid, int32_t managerport)
       exit(1);
     }
   }
-  printf("DBG client TCP received %d bytes\n", recv_bytes);
-  printf("totalRecv = %d\n", totalRecv);
+  ///*DEBUG*/printf("DBG client TCP received %d bytes\n", recv_bytes);
+  ///*DEBUG*/printf("totalRecv = %d\n", totalRecv);
 
   p_buffer = (u_char *)&buffer;
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
@@ -129,11 +129,11 @@ void clientDoWork(int clientid, int32_t managerport)
     perror("ERROR client recv failed");
     exit(1);
   } else {
-    printf("DBG client TCP received %d bytes\n", recv_bytes);
+    ///*DEBUG*/printf("DBG client TCP received %d bytes\n", recv_bytes);
     int32_t n_trackerport = 0;
     memcpy(&n_trackerport, &portmsg, sizeof(int32_t));
     trackerport = ntohl(n_trackerport);
-    printf("client got tracker port %d from manager\n", trackerport);
+    ///*DEBUG*/printf("client got tracker port %d from manager\n", trackerport);
   }
 
   /* Get the port number for communicating with spawned processes */
@@ -211,10 +211,10 @@ void clientDoWork(int clientid, int32_t managerport)
     files[i] = fileinfo;
     numHaveFiles++;
   }
-  /*DEBUG*/printf("Has %d files\n", numHaveFiles);
+  /*DEBUG*/printf("client %d: Has %d files\n", client->id, numHaveFiles);
   /*DEBUG*/for (int i = 0; i < numHaveFiles; i++) {
   /*DEBUG*/  struct FileInfo *fi = &files[i];
-  /*DEBUG*/  printf("Have file %s of size %lu with %d segments\n", fi->name, fi->size, fi->numsegments);
+  /*DEBUG*/  printf("   * file %s of size %lu with %d segments\n", fi->name, fi->size, fi->numsegments);
   /*DEBUG*/}
 
   // one-to-one file transfer testing
@@ -223,7 +223,7 @@ void clientDoWork(int clientid, int32_t managerport)
     //
     // GROUP_SHOW_INTEREST (c -> t)
     //
-    int16_t n_msgtype = htons(0); // GROUP_SHOW_INTEREST
+    int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
     int16_t n_cid = htons(client->id);
     int16_t n_numfiles = htons(1);
     int16_t n_type;
@@ -248,6 +248,7 @@ void clientDoWork(int clientid, int32_t managerport)
       // show interest only, do not need a group, willing to share
       n_type = htons(2);
     }
+    printf("file %s has type %d\n", t->file, ntohs(n_type));
 
     // Setup UDP socket to Tracker
     struct sockaddr_in si_other;
@@ -271,16 +272,17 @@ void clientDoWork(int clientid, int32_t managerport)
       // n * filename(32bytes)
       // type(16bit)
       int numfiles = 1; // TODO should be dynamic at later phase
-      u_char *pkt = malloc((sizeof(int16_t)*3) + ((32 + sizeof(int16_t)) * numfiles));
-      int16_t pktsize = ((sizeof(int16_t)*3) + ((32 + sizeof(int16_t)) * numfiles));
+      int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * numfiles));
+      u_char *pkt = malloc(pktsize);
+      printf("client %d: size of one file packet = %d\n", client->id, pktsize);
       n_pktsize = htons(pktsize);
 	    memset(pkt, 0, pktsize);
-      memcpy(pkt, &n_pktsize, sizeof(int16_t)); // move along 2 bytes
-      memcpy(pkt+2, &n_msgtype, sizeof(int16_t)); // move along 2 bytes
-      memcpy(pkt+4, &n_cid, sizeof(int16_t)); // move along 4 bytes TODO confirm this
-      memcpy(pkt+6, &n_numfiles, sizeof(int16_t)); // move along 6 bytes TODO confirm this
-      memcpy(pkt+8, &t->file, sizeof(t->file)); //+ 8 bytes
-      memcpy(pkt+32, &n_type, sizeof(int16_t)); // move along 32 bytes TODO confirm this
+      memcpy(pkt, &n_pktsize, sizeof(int16_t));
+      memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
+      memcpy(pkt+4, &n_cid, sizeof(int16_t));
+      memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
+      memcpy(pkt+8, &t->file, MAX_FILENAME);
+      memcpy(pkt+8+MAX_FILENAME, &n_type, sizeof(int16_t));
 
       int bytesSent = -1;
       int totalBytesSent = 0;

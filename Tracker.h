@@ -25,9 +25,7 @@ struct FileTracker
 {
   char filename[MAX_FILENAME];
   int sharingClients[MAX_CLIENTS];
-  int numSharingClients;
   int downClients[MAX_CLIENTS];
-  int numDownClients;
 };
 
 

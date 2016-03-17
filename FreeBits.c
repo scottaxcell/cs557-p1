@@ -75,7 +75,7 @@ int main(int argc, const char* argv[])
     // starts listening on for UDP connections
     // reports UDP port number to manager
     // listen for clients - give them what they want
-    /*DEBUG*/printf("DBG created child process for tracker pid = %d\n", getpid());
+    ///*DEBUG*/printf("DBG created child process for tracker pid = %d\n", getpid());
 
     //
     // setup UDP socket for comms
@@ -99,7 +99,7 @@ int main(int argc, const char* argv[])
     //
     // exit
     //
-    /*DEBUG*/printf("DBG exiting child process for tracker pid = %d\n", getpid());
+    ///*DEBUG*/printf("DBG exiting child process for tracker pid = %d\n", getpid());
     exit(0);
 
   } else if (pid > 0) {
@@ -142,9 +142,9 @@ int main(int argc, const char* argv[])
         //=========================================================================
         // CLIENT (child process)
         //=========================================================================
-        /*DEBUG*/printf("DBG created child process for client %d with pid = %d\n", clientid, getpid());
+        ///*DEBUG*/printf("DBG created child process for client %d with pid = %d\n", clientid, getpid());
         clientDoWork(clientid, managerport);
-        /*DEBUG*/printf("DBG created exiting child process client %d with pid = %d\n", clientid, getpid());
+        ///*DEBUG*/printf("DBG created exiting child process client %d with pid = %d\n", clientid, getpid());
         exit(0);
       } else if (clientpid == -1) {
         // client fork failed
@@ -231,7 +231,7 @@ int main(int argc, const char* argv[])
         }
       }
     }
-    printf("DBG exiting manager process %d\n", getpid());
+    //printf("DBG exiting manager process %d\n", getpid());
   } else {
     // fork failed
     perror("ERROR on fork");
