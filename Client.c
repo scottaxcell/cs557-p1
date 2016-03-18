@@ -7,7 +7,7 @@
 #include <stdbool.h> // bool
 
 #include "Client.h"
-#include "timers/timers-c.h"
+#include "timers-c.h"
 
 // socket sources
 #include <sys/types.h>
