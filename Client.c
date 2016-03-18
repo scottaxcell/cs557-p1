@@ -7,6 +7,7 @@
 #include <stdbool.h> // bool
 
 #include "Client.h"
+#include "timers/timers-c.h"
 
 // socket sources
 #include <sys/types.h>
@@ -23,28 +24,64 @@
  * fp = fileTask(); fork to run this.. downloads or shares a file from clients in a loop
  * Timers_AddTimer(task->starttime,fp,(int*)1); figure out what we want to pass instead of the 1
  *
+ * create a delay timer for a task
+ *
  * while (true) {
  *  if timer goes off {
- *    enable a task
+ *    run timer task: enable task (return -1 to die)
+ *    run timer task: send segment to other client (return -1 to die)
+ *    run timer task: can we terminate? (return 0 to reset)
  *  }
+ *
  *  if files to download {
- *    group update to tracker
- *    group update to clients in group
+ *    send interest to tracker
+ *    sendTrackerUpdate()
  *  }
  *
  *  s = select()
- *  if (s > 0) {
- *    handle request from client or tracker
+ *  if (s > 0) { // receive packet
+ *    client seg req: create timer for segment response to wait t ms delay (delete timer on completion)
+ *      sendClientSegmentReq() this function should start a request timout timer too
+ *    client seg res: add segment to file I'm downloading
+ *      handleClientSegRes() should reset global variable request timeout reads
+ *    client info req: create timer to send segment info to client (t ms delay) (segments I have of file)
+ *      sendClientInfoRes()
+ *    client info res: update local segment info (client -> segment map)
+ *      handleClientInfoRes() should reset requset timout variable
+ *    tracker update: update group information we received from tracker
+ *      handleTrackerUpdate() should reset requset timout variable
+ *  } else if (s == 0) {
+ *    timer expired
  *  }
+ *
  *
  * }
  */
+
+//int sendClientSegmentReq(struct of structiness)
+//{
+//
+//  return -1;
+//}
+
+static bool downloadState[MAX_FILES];
+
+int enableDownload(long i)
+{
+  /*DEBUG*/printf("Fired enableDownload timer for download %lu\n", i);
+  downloadState[i] = true;
+  return -1;
+}
 
 //
 // Client worker
 //
 void clientDoWork(int clientid, int32_t managerport)
 {
+
+  //
+  // Setup TCP socket for receiving configuration information from the manager
+  //
 	int sockfd;
 	struct addrinfo hints, *servinfo;
 
@@ -69,7 +106,6 @@ void clientDoWork(int clientid, int32_t managerport)
 		exit(1);
 	}
 
-	///*DEBUG*/printf("(clientDoWork) connected to the manager!\n");
 
   // Get my configuration information from the manager
   int32_t trackerport = 0;
@@ -145,7 +181,9 @@ void clientDoWork(int clientid, int32_t managerport)
   }
   clientport = ntohs(serv_addr.sin_port);
 
-  // write out log information
+  //
+  // Write out log information
+  //
   FILE *fp;
   char filename[20];
   sprintf(filename, "%02d.out", clientid);
@@ -182,9 +220,10 @@ void clientDoWork(int clientid, int32_t managerport)
   //}
   //printf("client %d send %d bytes to tracker\n", clientid, bytes_sent);
 
-  // TODO must wait till our starttime
 
-  // TODO figure out current file status
+  //
+  // Populate datastructure with the current files I have
+  // 
   struct FileInfo files[MAX_FILES];
   int numHaveFiles = 0;
   for (int i = 0; i < client->numfiles; i++) {
@@ -216,6 +255,89 @@ void clientDoWork(int clientid, int32_t managerport)
   /*DEBUG*/  struct FileInfo *fi = &files[i];
   /*DEBUG*/  printf("   * file %s of size %lu with %d segments\n", fi->name, fi->size, fi->numsegments);
   /*DEBUG*/}
+
+  //
+  // Populate datastructure with downloads to complete
+  //
+  struct Download {
+    int starttime;
+    int share;
+    bool enabled;
+    char filename[MAX_FILENAME];
+  };
+
+  for (int i = 0; i < MAX_FILES; i++) {
+    downloadState[i] = false;
+  }
+  struct Download downloads[MAX_FILES];
+  long numDownloads = 0;
+  if (client->numtasks > 0) {
+    for (int i = 0; i < client->numtasks; i++) {
+      struct Task *t = &client->tasks[i];
+      struct Download d;
+      d.starttime = t->starttime;
+      d.share = t->share;
+      d.enabled = false;
+      memcpy(&d.filename, &t->file, MAX_FILENAME);
+      memcpy(&downloads[numDownloads], &d, sizeof(struct Download));
+
+      int (*fp)();
+     	fp = enableDownload;
+	    // TODO Timers_AddTimer(d.starttime, fp, (long*)numDownloads);
+      numDownloads++;
+    }
+  }
+
+  //
+  // TODO Event loop doing the actual work now
+  //
+	//struct timeval tmv;
+	//int status;
+
+	///* Change while condition to reflect what is required for Project 1
+	//   ex: Routing table stabalization.  */
+	//while (1) {
+	//	Timers_NextTimerTime(&tmv);
+	//	if (tmv.tv_sec == 0 && tmv.tv_usec == 0) {
+	//	  /* The timer at the head on the queue has expired  */
+	//	        Timers_ExecuteNextTimer();
+	//		continue;
+	//	}
+	//	if (tmv.tv_sec == MAXVALUE && tmv.tv_usec == 0){
+	//	  /* There are no timers in the event queue */
+	//	        break;
+	//	}
+	//	  
+	//	/* The select call here will wait for tv seconds before expiring 
+	//	 * You need to  modifiy it to listen to multiple sockets and add code for 
+	//	 * packet processing. Refer to the select man pages or "Unix Network 
+	//	 * Programming" by R. Stevens Pg 156.
+	//	 */
+	//	status = select(0, NULL, NULL, NULL, &tmv);
+	//	
+	//	if (status < 0){
+	//	  /* This should not happen */
+	//		fprintf(stderr, "Select returned %d\n", status);
+	//	}else{
+	//		if (status == 0){
+	//			/* Timer expired, Hence process it  */
+	//		        Timers_ExecuteNextTimer();
+	//			/* Execute all timers that have expired.*/
+	//			Timers_NextTimerTime(&tmv);
+	//			while(tmv.tv_sec == 0 && tmv.tv_usec == 0){
+	//			  /* Timer at the head of the queue has expired  */
+	//			        Timers_ExecuteNextTimer();
+	//				Timers_NextTimerTime(&tmv);
+	//				
+	//			}
+	//		}
+	//		if (status > 0){
+	//			/* The socket has received data.
+	//			   Perform packet processing. */
+	//	    
+	//		}
+	//	}
+	//}
 
   // one-to-one file transfer testing
   if (client->numtasks > 0) {

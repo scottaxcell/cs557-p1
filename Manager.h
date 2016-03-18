@@ -143,7 +143,7 @@ struct Manager* readMgrCfg()
       snprintf(task.file, MAX_FILENAME, "%s", file);
       task.starttime = starttime;
       task.share = share;
-      memcpy(client->tasks[client->numtasks], &task, sizeof(task));
+      memcpy(&client->tasks[client->numtasks], &task, sizeof(task));
       client->numtasks++;
       continue;
     }

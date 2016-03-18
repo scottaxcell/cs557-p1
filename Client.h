@@ -31,6 +31,7 @@ struct Task
 {
   int starttime;
   int share;
+  int enabled;
   char file[MAX_FILENAME];
 };
 
@@ -42,7 +43,7 @@ struct Client
   int numfiles;
   int numtasks;
   char files[MAX_FILES][MAX_FILENAME];
-  struct Task tasks[MAX_FILES][sizeof(struct Task)];
+  struct Task tasks[MAX_FILES];
 };
 
 void clientDoWork(int clientid, int32_t managerport);

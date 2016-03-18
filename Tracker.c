@@ -188,7 +188,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       //memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
       //memcpy(pkt+8, &t->file, MAX_FILENAME);
       //memcpy(pkt+8+MAX_FILENAME, &n_type, sizeof(int16_t));
-      u_char *pkt = "TRACK_TO_CLNT_UPDATE";
+      u_char *pkt = (u_char *)"TRACK_TO_CLNT_UPDATE";
       int16_t pktsize = 20;
 
       socklen_t slen;
