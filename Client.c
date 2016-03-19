@@ -58,12 +58,8 @@
  * }
  */
 
-//int sendClientSegmentReq(struct of structiness)
-//{
-//
-//  return -1;
-//}
 
+// Each forked process gets a copy of these static variables so there is no collision
 static bool downloadState[MAX_FILES];
 
 int enableDownload(long i)
@@ -283,7 +279,7 @@ void clientDoWork(int clientid, int32_t managerport)
 
       int (*fp)();
      	fp = enableDownload;
-	    // TODO Timers_AddTimer(d.starttime, fp, (long*)numDownloads);
+	    Timers_AddTimer(d.starttime, fp, (long*)numDownloads);
       numDownloads++;
     }
   }
@@ -291,53 +287,52 @@ void clientDoWork(int clientid, int32_t managerport)
   //
   // TODO Event loop doing the actual work now
   //
-	//struct timeval tmv;
-	//int status;
+	struct timeval tmv;
+	int status;
 
 	///* Change while condition to reflect what is required for Project 1
 	//   ex: Routing table stabalization.  */
-	//while (1) {
-	//	Timers_NextTimerTime(&tmv);
-	//	if (tmv.tv_sec == 0 && tmv.tv_usec == 0) {
-	//	  /* The timer at the head on the queue has expired  */
-	//	        Timers_ExecuteNextTimer();
-	//		continue;
-	//	}
-	//	if (tmv.tv_sec == MAXVALUE && tmv.tv_usec == 0){
-	//	  /* There are no timers in the event queue */
-	//	        break;
-	//	}
-	//	  
-	//	/* The select call here will wait for tv seconds before expiring 
-	//	 * You need to  modifiy it to listen to multiple sockets and add code for 
-	//	 * packet processing. Refer to the select man pages or "Unix Network 
-	//	 * Programming" by R. Stevens Pg 156.
-	//	 */
-	//	status = select(0, NULL, NULL, NULL, &tmv);
-	//	
-	//	if (status < 0){
-	//	  /* This should not happen */
-	//		fprintf(stderr, "Select returned %d\n", status);
-	//	}else{
-	//		if (status == 0){
-	//			/* Timer expired, Hence process it  */
-	//		        Timers_ExecuteNextTimer();
-	//			/* Execute all timers that have expired.*/
-	//			Timers_NextTimerTime(&tmv);
-	//			while(tmv.tv_sec == 0 && tmv.tv_usec == 0){
-	//			  /* Timer at the head of the queue has expired  */
-	//			        Timers_ExecuteNextTimer();
-	//				Timers_NextTimerTime(&tmv);
-	//				
-	//			}
-	//		}
-	//		if (status > 0){
-	//			/* The socket has received data.
-	//			   Perform packet processing. */
-	//	    
-	//		}
-	//	}
-	//}
+	while (1) {
+		Timers_NextTimerTime(&tmv);
+		if (tmv.tv_sec == 0 && tmv.tv_usec == 0) {
+      /* The timer at the head on the queue has expired  */
+      Timers_ExecuteNextTimer();
+      continue;
+		}
+		//if (tmv.tv_sec == MAXVALUE && tmv.tv_usec == 0){
+    //  /* There are no timers in the event queue */
+    //  break;
+		//}
+		  
+		/* The select call here will wait for tv seconds before expiring 
+		 * You need to  modifiy it to listen to multiple sockets and add code for 
+		 * packet processing. Refer to the select man pages or "Unix Network 
+		 * Programming" by R. Stevens Pg 156.
+		 */
+		status = select(0, NULL, NULL, NULL, &tmv);
+		
+		if (status < 0) {
+		  /* This should not happen */
+			fprintf(stderr, "Select returned %d\n", status);
+		} else {
+			if (status == 0) {
+				/* Timer expired, Hence process it  */
+        Timers_ExecuteNextTimer();
+				/* Execute all timers that have expired.*/
+				Timers_NextTimerTime(&tmv);
+				while(tmv.tv_sec == 0 && tmv.tv_usec == 0){
+				  /* Timer at the head of the queue has expired  */
+	        Timers_ExecuteNextTimer();
+					Timers_NextTimerTime(&tmv);
+				}
+			}
+			if (status > 0) {
+				/* The socket has received data.
+				   Perform packet processing. */
+        
+			}
+		}
+	}
 
   // one-to-one file transfer testing
   if (client->numtasks > 0) {
