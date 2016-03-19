@@ -15,4 +15,7 @@ Writing data out as a hex string
 http://stackoverflow.com/questions/11992677/printf-raw-data-to-a-fixed-length-hex-output
 
 De/serializing data for tranfer over a network
-http://stackoverflow.com/questions/1653681/serialization-deserialization-of-a-struct-to-a-char-in-c
+htttp://stackoverflow.com/questions/1653681/serialization-deserialization-of-a-struct-to-a-char-in-c
+
+Select example
+http://www.gnu.org/software/libc/manual/html_node/Server-Example.html

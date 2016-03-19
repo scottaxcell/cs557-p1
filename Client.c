@@ -60,14 +60,109 @@
 
 
 // Each forked process gets a copy of these static variables so there is no collision
+static struct CommInfo commInfo;
 static bool downloadState[MAX_FILES];
+static struct Download downloads[MAX_FILES];
+static long numDownloads = 0;
+static struct FileInfo files[MAX_FILES];
+static int numHaveFiles = 0;
 
-int enableDownload(long i)
+int enableDownload(int i)
 {
-  /*DEBUG*/printf("Fired enableDownload timer for download %lu\n", i);
+  /*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
   downloadState[i] = true;
+  return -1; // negative reurn will remove timer after completion
+}
+
+//
+// Send tracker group interest
+//
+int sendInterestToTracker()
+{
+  printf("Fired sendInterestToTracker\n");
+  //
+  // GROUP_SHOW_INTEREST (client -> tracker)
+  //
+  if (numDownloads == 0)
+    return -1;
+
+  int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
+  int16_t n_cid = htons(commInfo.clientid);
+  int16_t n_numfiles = htons(numDownloads);
+  // Create packet and send it
+  // pktsize(16bit)
+  // msgtype (16bit)
+  // client_id(16bit)
+  // numfiles(16bit)
+  // n * ( filename(32bytes) type(16bit) )
+  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * numDownloads));
+  u_char *pkt = malloc(pktsize);
+  u_char *pkt0 = pkt; // keep pointer to beginning so we can free later
+  printf("client %d: size of interest packet = %d\n", commInfo.clientid, pktsize);
+  int16_t n_pktsize = htons(pktsize);
+  memset(pkt, 0, pktsize);
+  memcpy(pkt, &n_pktsize, sizeof(int16_t));
+  memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
+  memcpy(pkt+4, &n_cid, sizeof(int16_t));
+  memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
+  pkt = pkt + 8;
+
+  for (int i = 0; i < numDownloads; i++) {
+    struct Download *d = &downloads[i];
+
+    // figure out type
+    int16_t n_type;
+    bool haveFileAlready = false;
+    for (int i = 0; i < numHaveFiles; i++) {
+      struct FileInfo *fi = &files[i];
+      if (strcmp(fi->name, d->filename) == 0) {
+        haveFileAlready = true;
+        break;
+      }
+    }
+    if (!haveFileAlready && d->share == 0) {
+      // request a group, but not willing to share
+      n_type = htons(0);
+    } else if (!haveFileAlready && d->share == 1) {
+      // request a group, and willing to share
+      n_type = htons(1);
+    } else if (haveFileAlready && d->share == 1) {
+      // show interest only, do not need a group, willing to share
+      n_type = htons(2);
+    }
+    printf("  client %d task file %s has type %d\n", commInfo.clientid, d->filename, ntohs(n_type));
+
+    memcpy(pkt, &d->filename, MAX_FILENAME);
+    pkt = pkt + MAX_FILENAME;
+    memcpy(pkt, &n_type, sizeof(int16_t));
+    pkt = pkt + 2;
+  }
+
+  struct sockaddr_in si_other;
+  socklen_t slen;
+  slen = sizeof(si_other);
+  memset((char *) &si_other, 0, sizeof(si_other));
+  si_other.sin_family = AF_INET;
+  printf("udpsock %d\n", commInfo.udpsock);
+  printf("tracker port %d\n", commInfo.trackerport);
+  si_other.sin_port = htons(commInfo.trackerport); // set tracker port we want to send to
+
+  int bytesSent = -1, totalBytesSent = 0;
+  while (bytesSent < totalBytesSent) {
+    if ((bytesSent = sendto(commInfo.udpsock, pkt0, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+      perror("ERROR (sendInterestToTracker) sendto");
+      exit(1);
+    }
+    totalBytesSent += bytesSent;
+  }
+  printf("client %d sent %d bytes to tracker\n", commInfo.clientid, totalBytesSent);
+  free(pkt0);
+  
+  // TODO log the packet that was just sent to tracker
   return -1;
 }
+
+
 
 //
 // Client worker
@@ -137,6 +232,9 @@ void clientDoWork(int clientid, int32_t managerport)
 
   p_buffer = (u_char *)&buffer;
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
+  commInfo.pktdelay = client->pktdelay;
+  commInfo.pktprob = client->pktprob;
+  commInfo.clientid = client->id;
 
   ///*DEBUG*/printf("Client %d:\n", client->id);
   ///*DEBUG*/printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->pktdelay,
@@ -165,6 +263,7 @@ void clientDoWork(int clientid, int32_t managerport)
     int32_t n_trackerport = 0;
     memcpy(&n_trackerport, &portmsg, sizeof(int32_t));
     trackerport = ntohl(n_trackerport);
+    commInfo.trackerport = trackerport;
     ///*DEBUG*/printf("client got tracker port %d from manager\n", trackerport);
   }
 
@@ -176,6 +275,36 @@ void clientDoWork(int clientid, int32_t managerport)
      exit(1);
   }
   clientport = ntohs(serv_addr.sin_port);
+  commInfo.myport = clientport;
+
+  //
+  // Create UDP socket using the port number everyone know us by
+  //
+  struct sockaddr_in udp_serv_addr;
+  memset((char *) &udp_serv_addr, 0, sizeof(udp_serv_addr));
+
+  int udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (udpsock < 0) {
+    perror("ERROR (setupTrackerUDPComms) on tracker UDP socket");
+    exit(1);
+  }
+  commInfo.udpsock = udpsock;
+
+  // lose the pesky "Address already in use" error message
+  int yes = 1;
+  if (setsockopt(udpsock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+    perror("ERROR: clientDoWork setsockopt failed");
+    exit(1);
+  }
+
+  udp_serv_addr.sin_family = AF_INET;
+  udp_serv_addr.sin_addr.s_addr = INADDR_ANY;
+  udp_serv_addr.sin_port = htons(clientport);
+
+  if (bind(udpsock, (struct sockaddr *) &udp_serv_addr, sizeof(udp_serv_addr)) < 0) {
+     perror("ERROR (clientDoWork) binding UDP port");
+     exit(1);
+  }
 
   //
   // Write out log information
@@ -220,8 +349,6 @@ void clientDoWork(int clientid, int32_t managerport)
   //
   // Populate datastructure with the current files I have
   // 
-  struct FileInfo files[MAX_FILES];
-  int numHaveFiles = 0;
   for (int i = 0; i < client->numfiles; i++) {
     char *filename = (char *)&(client->files[i]);
     FILE *fp = fopen(filename, "rb");
@@ -233,7 +360,7 @@ void clientDoWork(int clientid, int32_t managerport)
     long filesize = ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
-    unsigned char *filecontents = (unsigned char*)malloc(filesize);
+    unsigned char *filecontents = (unsigned char*)malloc(filesize); // TODO free me!
     memset(filecontents, 0, filesize);
     fread(filecontents, filesize, 1, fp);
     fclose(fp);
@@ -265,11 +392,9 @@ void clientDoWork(int clientid, int32_t managerport)
   for (int i = 0; i < MAX_FILES; i++) {
     downloadState[i] = false;
   }
-  struct Download downloads[MAX_FILES];
-  long numDownloads = 0;
   if (client->numtasks > 0) {
     for (int i = 0; i < client->numtasks; i++) {
-      struct Task *t = &client->tasks[i];
+      struct Task *t = (struct Task *)&client->tasks[i];
       struct Download d;
       d.starttime = t->starttime;
       d.share = t->share;
@@ -289,9 +414,10 @@ void clientDoWork(int clientid, int32_t managerport)
   //
 	struct timeval tmv;
 	int status;
+  fd_set active_fd_set, read_fd_set;
+  FD_ZERO(&active_fd_set);
+  FD_SET(udpsock, &active_fd_set);
 
-	///* Change while condition to reflect what is required for Project 1
-	//   ex: Routing table stabalization.  */
 	while (1) {
 		Timers_NextTimerTime(&tmv);
 		if (tmv.tv_sec == 0 && tmv.tv_usec == 0) {
@@ -299,17 +425,17 @@ void clientDoWork(int clientid, int32_t managerport)
       Timers_ExecuteNextTimer();
       continue;
 		}
-		//if (tmv.tv_sec == MAXVALUE && tmv.tv_usec == 0){
-    //  /* There are no timers in the event queue */
-    //  break;
-		//}
-		  
-		/* The select call here will wait for tv seconds before expiring 
-		 * You need to  modifiy it to listen to multiple sockets and add code for 
-		 * packet processing. Refer to the select man pages or "Unix Network 
-		 * Programming" by R. Stevens Pg 156.
-		 */
-		status = select(0, NULL, NULL, NULL, &tmv);
+
+    //
+    // Group update to tracker
+    //
+    int (*fp)();
+    fp = sendInterestToTracker;
+    Timers_AddTimer(commInfo.pktdelay, fp, (int*)1);
+
+		tmv.tv_sec = 3; tmv.tv_usec = 0; // TODO figure out what to set timer to here
+    read_fd_set = active_fd_set;
+		status = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &tmv);
 		
 		if (status < 0) {
 		  /* This should not happen */
@@ -329,97 +455,98 @@ void clientDoWork(int clientid, int32_t managerport)
 			if (status > 0) {
 				/* The socket has received data.
 				   Perform packet processing. */
+        //handleRecvData();
         
 			}
 		}
 	}
 
   // one-to-one file transfer testing
-  if (client->numtasks > 0) {
-    struct Task *t = (struct Task *)&client->tasks[0];
-    //
-    // GROUP_SHOW_INTEREST (c -> t)
-    //
-    int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
-    int16_t n_cid = htons(client->id);
-    int16_t n_numfiles = htons(1);
-    int16_t n_type;
-    int16_t n_pktsize;
-
-    // figure out type
-    bool haveFileAlready = false;
-    for (int i = 0; i < numHaveFiles; i++) {
-      struct FileInfo *fi = &files[i];
-      if (strcmp(fi->name, t->file) == 0) {
-        haveFileAlready = true;
-        break;
-      }
-    }
-    if (!haveFileAlready && t->share == 0) {
-      // request a group, but not willing to share
-      n_type = htons(0);
-    } else if (!haveFileAlready && t->share == 1) {
-      // request a group, and willing to share
-      n_type = htons(1);
-    } else if (haveFileAlready && t->share == 1) {
-      // show interest only, do not need a group, willing to share
-      n_type = htons(2);
-    }
-    printf("file %s has type %d\n", t->file, ntohs(n_type));
-
-    // Setup UDP socket to Tracker
-    struct sockaddr_in si_other;
-    int udpsock;
-    socklen_t slen;
-    slen = sizeof(si_other);
-    if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-      perror("ERROR (clientDoWork) UDP socket creation");
-      exit(1);
-    }
-    memset((char *) &si_other, 0, sizeof(si_other));
-    si_other.sin_family = AF_INET;
-    si_other.sin_port = htons(trackerport); // set tracker port we want to send to
-
-    {
-      // Create packet and send it
-      // pktsize(16bit)
-      // msgtype (16bit)
-      // client_id(16bit)
-      // numfiles(16bit)
-      // n * filename(32bytes)
-      // type(16bit)
-      int numfiles = 1; // TODO should be dynamic at later phase
-      int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * numfiles));
-      u_char *pkt = malloc(pktsize);
-      printf("client %d: size of one file packet = %d\n", client->id, pktsize);
-      n_pktsize = htons(pktsize);
-	    memset(pkt, 0, pktsize);
-      memcpy(pkt, &n_pktsize, sizeof(int16_t));
-      memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
-      memcpy(pkt+4, &n_cid, sizeof(int16_t));
-      memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
-      memcpy(pkt+8, &t->file, MAX_FILENAME);
-      memcpy(pkt+8+MAX_FILENAME, &n_type, sizeof(int16_t));
-
-      int bytesSent = -1;
-      int totalBytesSent = 0;
-      while (bytesSent < totalBytesSent) {
-        if ((bytesSent = sendto(udpsock, pkt, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
-          perror("ERROR (clientDoWork) sendto");
-          exit(1);
-        }
-        totalBytesSent += bytesSent;
-      }
-      printf("client %d sent %d bytes to tracker\n", client->id, totalBytesSent);
-      free(pkt);
-    }
-    
-    // TODO log the packet that was just sent to tracker
-    
-    {
-    }
-
-  }
+//  if (client->numtasks > 0) {
+//    struct Task *t = (struct Task *)&client->tasks[0];
+//    //
+//    // GROUP_SHOW_INTEREST (c -> t)
+//    //
+//    int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
+//    int16_t n_cid = htons(client->id);
+//    int16_t n_numfiles = htons(1);
+//    int16_t n_type;
+//    int16_t n_pktsize;
+//
+//    // figure out type
+//    bool haveFileAlready = false;
+//    for (int i = 0; i < numHaveFiles; i++) {
+//      struct FileInfo *fi = &files[i];
+//      if (strcmp(fi->name, t->file) == 0) {
+//        haveFileAlready = true;
+//        break;
+//      }
+//    }
+//    if (!haveFileAlready && t->share == 0) {
+//      // request a group, but not willing to share
+//      n_type = htons(0);
+//    } else if (!haveFileAlready && t->share == 1) {
+//      // request a group, and willing to share
+//      n_type = htons(1);
+//    } else if (haveFileAlready && t->share == 1) {
+//      // show interest only, do not need a group, willing to share
+//      n_type = htons(2);
+//    }
+//    printf("file %s has type %d\n", t->file, ntohs(n_type));
+//
+//    // Setup UDP socket to Tracker
+//    struct sockaddr_in si_other;
+//    int udpsock;
+//    socklen_t slen;
+//    slen = sizeof(si_other);
+//    if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+//      perror("ERROR (clientDoWork) UDP socket creation");
+//      exit(1);
+//    }
+//    memset((char *) &si_other, 0, sizeof(si_other));
+//    si_other.sin_family = AF_INET;
+//    si_other.sin_port = htons(trackerport); // set tracker port we want to send to
+//
+//    {
+//      // Create packet and send it
+//      // pktsize(16bit)
+//      // msgtype (16bit)
+//      // client_id(16bit)
+//      // numfiles(16bit)
+//      // n * filename(32bytes)
+//      // type(16bit)
+//      int numfiles = 1; // TODO should be dynamic at later phase
+//      int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * numfiles));
+//      u_char *pkt = malloc(pktsize);
+//      printf("client %d: size of one file packet = %d\n", client->id, pktsize);
+//      n_pktsize = htons(pktsize);
+//	    memset(pkt, 0, pktsize);
+//      memcpy(pkt, &n_pktsize, sizeof(int16_t));
+//      memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
+//      memcpy(pkt+4, &n_cid, sizeof(int16_t));
+//      memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
+//      memcpy(pkt+8, &t->file, MAX_FILENAME);
+//      memcpy(pkt+8+MAX_FILENAME, &n_type, sizeof(int16_t));
+//
+//      int bytesSent = -1;
+//      int totalBytesSent = 0;
+//      while (bytesSent < totalBytesSent) {
+//        if ((bytesSent = sendto(udpsock, pkt, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+//          perror("ERROR (clientDoWork) sendto");
+//          exit(1);
+//        }
+//        totalBytesSent += bytesSent;
+//      }
+//      printf("client %d sent %d bytes to tracker\n", client->id, totalBytesSent);
+//      free(pkt);
+//    }
+//    
+//    // TODO log the packet that was just sent to tracker
+//    
+//    {
+//    }
+//
+//  }
   
 
 

@@ -51,7 +51,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     // client_id(16bit)
     // numfiles(16bit)
     // n * ( filename(32bytes) type(16bit) )
-    u_char buffer[256];
+    u_char buffer[512]; // make this large to make life easy
     int bytesRecv = recvfrom(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr*)&addr, &fromlen);
     if (bytesRecv == -1) {
       perror("ERROR initial manager recv failed");
@@ -60,13 +60,15 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     int16_t n_pktsize = 0;
     memcpy(&n_pktsize, &buffer, sizeof(int16_t));
     int16_t pktsize = ntohs(n_pktsize);
+    printf("Tracker expects full packet to be size of %d\n", pktsize);
     u_char *realBuffer = malloc(pktsize);
+    u_char *realBuffer0 = realBuffer; // save position 0 for free
     memcpy(realBuffer, &buffer, bytesRecv); // copy first portion of packet
 
     // get the rest of the packet
     int totalBytesRecv = bytesRecv;
     while (totalBytesRecv < pktsize) {
-      bytesRecv = recvfrom(udpsock, (realBuffer + bytesRecv), sizeof(*realBuffer), 0, (struct sockaddr*)&addr, &fromlen); // TODO does sizeof(*pointer) work?
+      bytesRecv = recvfrom(udpsock, (realBuffer + bytesRecv), sizeof(*realBuffer), 0, (struct sockaddr*)&addr, &fromlen);
       if (bytesRecv == -1) {
         perror("ERROR additional manager recvfrom failed");
         exit(1);
@@ -115,7 +117,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     /*DEBUG*/printf("Tracker received %d bytes from client %d at %s on port %d\n", totalBytesRecv, clientaddr.id, clientaddr.ip, clientaddr.port);
     /*DEBUG*/printf("  msgtype = %d, numfiles = %d\n", msgtype, numfiles);
 
-    realBuffer += 8; // set pointer to first filename
+    realBuffer = realBuffer + 8; // set pointer to first filename
     for (int16_t i = 0; i < numfiles; i++) {
       realBuffer += (i*MAX_FILENAME)+(i*2);
       char filename[MAX_FILENAME];
@@ -188,23 +190,23 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       //memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
       //memcpy(pkt+8, &t->file, MAX_FILENAME);
       //memcpy(pkt+8+MAX_FILENAME, &n_type, sizeof(int16_t));
-      u_char *pkt = (u_char *)"TRACK_TO_CLNT_UPDATE";
-      int16_t pktsize = 20;
+      //u_char *pkt = (u_char *)"TRACK_TO_CLNT_UPDATE";
+      //int16_t pktsize = 20;
 
-      socklen_t slen;
-      slen = sizeof(addr);
-      int bytesSent = -1;
-      int totalBytesSent = 0;
-      while (bytesSent < totalBytesSent) {
-        if ((bytesSent = sendto(udpsock, pkt, pktsize, 0, (struct sockaddr*)&addr, slen)) == -1) {
-          perror("ERROR (clientDoWork) sendto");
-          exit(1);
-        }
-        totalBytesSent += bytesSent;
-      }
-      printf("tracker sent %d bytes to client\n", totalBytesSent);
-      //free(pkt);
+      //socklen_t slen;
+      //slen = sizeof(addr);
+      //int bytesSent = -1;
+      //int totalBytesSent = 0;
+      //while (bytesSent < totalBytesSent) {
+      //  if ((bytesSent = sendto(udpsock, pkt, pktsize, 0, (struct sockaddr*)&addr, slen)) == -1) {
+      //    perror("ERROR (clientDoWork) sendto");
+      //    exit(1);
+      //  }
+      //  totalBytesSent += bytesSent;
+      //}
+      //printf("Tracker sent %d bytes to client\n", totalBytesSent);
     }
+    free(realBuffer0);
   }
 
   // TODO need to maintain a table of filename to all clients interested in sharing the file.
