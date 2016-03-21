@@ -86,6 +86,8 @@ int sendInterestToTracker()
   if (numDownloads == 0)
     return -1;
 
+  char logstr[(numDownloads*MAX_FILENAME) + 56];
+  memset(&logstr, '\0', sizeof(logstr));
   int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
   int16_t n_cid = htons(commInfo.clientid);
   int16_t n_numfiles = htons(numDownloads);
@@ -136,6 +138,10 @@ int sendInterestToTracker()
     pkt = pkt + MAX_FILENAME;
     memcpy(pkt, &n_type, sizeof(int16_t));
     pkt = pkt + 2;
+
+    // for logging save off filename
+    strcat(logstr, d->filename);
+    strcat(logstr, " ");
   }
 
   struct sockaddr_in si_other;
@@ -158,7 +164,23 @@ int sendInterestToTracker()
   printf("client %d sent %d bytes to tracker\n", commInfo.clientid, totalBytesSent);
   free(pkt0);
   
-  // TODO log the packet that was just sent to tracker
+  //
+  // Log the packet that was just sent to tracker
+  //
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+
+  FILE *fp;
+  char filename[20];
+  sprintf(filename, "%02d.out", commInfo.clientid);
+  fp = fopen(filename, "a");
+  if (fp == NULL) {
+    perror("ERROR opening client log file for append");
+    exit(1);
+  }
+  fprintf(fp, "%lu.%d\tTo\tT\tGROUP_SHOW_INTEREST\t%s\n", tv.tv_sec, tv.tv_usec, logstr);
+  fclose(fp);
+
   return -1;
 }
 
@@ -322,6 +344,8 @@ void clientDoWork(int clientid, int32_t managerport)
   fprintf(fp, "pid %d\n", getpid());
   fprintf(fp, "tPort %d\n", trackerport);
   fprintf(fp, "myPort %d\n", clientport);
+  printf("Client %d wrote log file %s\n", clientid, filename);
+  fclose(fp);
 
   //// send a test message to the tracker
   //struct sockaddr_in si_other;

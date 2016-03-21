@@ -19,19 +19,13 @@ struct ClientAddr
 };
   
 //
-// File being tracked by the tracker
+// Group information for a file being tracked by the tracker
 //
-struct FileTracker
+struct Group
 {
   char filename[MAX_FILENAME];
   int sharingClients[MAX_CLIENTS];
   int downClients[MAX_CLIENTS];
-};
-
-
-struct Tracker
-{
- 
 };
 
 void trackerDoWork(int udpsock, int32_t trackerport);
