@@ -16,61 +16,42 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 // end
-
 /*
- * timer solution
- * create a timer for starttime to wake up client for file downloading
- * int (*fp)();
- * fp = fileTask(); fork to run this.. downloads or shares a file from clients in a loop
- * Timers_AddTimer(task->starttime,fp,(int*)1); figure out what we want to pass instead of the 1
- *
- * create a delay timer for a task
- *
- * while (true) {
- *  if timer goes off {
- *    run timer task: enable task (return -1 to die)
- *    run timer task: send segment to other client (return -1 to die)
- *    run timer task: can we terminate? (return 0 to reset)
- *  }
- *
- *  if files to download {
- *    send interest to tracker
- *    sendTrackerUpdate()
- *  }
- *
- *  s = select()
- *  if (s > 0) { // receive packet
- *    client seg req: create timer for segment response to wait t ms delay (delete timer on completion)
- *      sendClientSegmentReq() this function should start a request timout timer too
- *    client seg res: add segment to file I'm downloading
- *      handleClientSegRes() should reset global variable request timeout reads
- *    client info req: create timer to send segment info to client (t ms delay) (segments I have of file)
- *      sendClientInfoRes()
- *    client info res: update local segment info (client -> segment map)
- *      handleClientInfoRes() should reset requset timout variable
- *    tracker update: update group information we received from tracker
- *      handleTrackerUpdate() should reset requset timout variable
- *  } else if (s == 0) {
- *    timer expired
- *  }
- *
- *
- * }
- */
+GROUP_SHOW_INTEREST, // client tells tracker about itself
+  pktsize, msgtype, client id, number files, filename, type, ...
 
+GROUP_ASSIGN, // tracker tells client about other clients
+  pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
+
+CLNT_INFO_REQ, // client asks other client for file info
+  pktsize, msgtype, filename
+
+CLNT_INFO_REP, // client tells other client about file segments it has
+  pktsize, msgtype, filename, num segments, segment number, ...
+
+CLNT_SEG_REQ, // client asks other client for a file segment
+  pktsize, msgtype, filename, segment number
+
+CLNT_SEG_REP // client sends other client file segment
+  pktsize, msgtype, filename, raw file data
+*/
 
 // Each forked process gets a copy of these static variables so there is no collision
-static struct CommInfo commInfo;
-static bool downloadState[MAX_FILES];
-static struct Download downloads[MAX_FILES];
-static long numDownloads = 0;
-static struct FileInfo files[MAX_FILES];
-static int numHaveFiles = 0;
+static struct CommInfo s_commInfo;
+
+static bool s_downloadState[MAX_FILES];
+
+static struct Download s_downloads[MAX_FILES];
+static long s_numDownloads = 0;
+
+static struct FileInfo s_ownedFiles[MAX_FILES];
+static int s_numOwnedFiles = 0;
+
 
 int enableDownload(int i)
 {
   /*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
-  downloadState[i] = true;
+  s_downloadState[i] = true;
   return -1; // negative reurn will remove timer after completion
 }
 
@@ -83,24 +64,24 @@ int sendInterestToTracker()
   //
   // GROUP_SHOW_INTEREST (client -> tracker)
   //
-  if (numDownloads == 0)
+  if (s_numDownloads == 0)
     return -1;
 
-  char logstr[(numDownloads*MAX_FILENAME) + 56];
+  char logstr[(s_numDownloads*MAX_FILENAME) + 56];
   memset(&logstr, '\0', sizeof(logstr));
   int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
-  int16_t n_cid = htons(commInfo.clientid);
-  int16_t n_numfiles = htons(numDownloads);
+  int16_t n_cid = htons(s_commInfo.clientid);
+  int16_t n_numfiles = htons(s_numDownloads);
   // Create packet and send it
   // pktsize(16bit)
   // msgtype (16bit)
   // client_id(16bit)
   // numfiles(16bit)
   // n * ( filename(32bytes) type(16bit) )
-  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * numDownloads));
+  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * s_numDownloads));
   u_char *pkt = malloc(pktsize);
   u_char *pkt0 = pkt; // keep pointer to beginning so we can free later
-  printf("client %d: size of interest packet = %d\n", commInfo.clientid, pktsize);
+  printf("client %d: size of interest packet = %d\n", s_commInfo.clientid, pktsize);
   int16_t n_pktsize = htons(pktsize);
   memset(pkt, 0, pktsize);
   memcpy(pkt, &n_pktsize, sizeof(int16_t));
@@ -109,14 +90,14 @@ int sendInterestToTracker()
   memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
   pkt = pkt + 8;
 
-  for (int i = 0; i < numDownloads; i++) {
-    struct Download *d = &downloads[i];
+  for (int i = 0; i < s_numDownloads; i++) {
+    struct Download *d = &s_downloads[i];
 
     // figure out type
     int16_t n_type;
     bool haveFileAlready = false;
-    for (int i = 0; i < numHaveFiles; i++) {
-      struct FileInfo *fi = &files[i];
+    for (int i = 0; i < s_numOwnedFiles; i++) {
+      struct FileInfo *fi = &s_ownedFiles[i];
       if (strcmp(fi->name, d->filename) == 0) {
         haveFileAlready = true;
         break;
@@ -132,7 +113,7 @@ int sendInterestToTracker()
       // show interest only, do not need a group, willing to share
       n_type = htons(2);
     }
-    printf("  client %d task file %s has type %d\n", commInfo.clientid, d->filename, ntohs(n_type));
+    printf("  client %d task file %s has type %d\n", s_commInfo.clientid, d->filename, ntohs(n_type));
 
     memcpy(pkt, &d->filename, MAX_FILENAME);
     pkt = pkt + MAX_FILENAME;
@@ -149,19 +130,19 @@ int sendInterestToTracker()
   slen = sizeof(si_other);
   memset((char *) &si_other, 0, sizeof(si_other));
   si_other.sin_family = AF_INET;
-  printf("udpsock %d\n", commInfo.udpsock);
-  printf("tracker port %d\n", commInfo.trackerport);
-  si_other.sin_port = htons(commInfo.trackerport); // set tracker port we want to send to
+  printf("udpsock %d\n", s_commInfo.udpsock);
+  printf("tracker port %d\n", s_commInfo.trackerport);
+  si_other.sin_port = htons(s_commInfo.trackerport); // set tracker port we want to send to
 
   int bytesSent = -1, totalBytesSent = 0;
   while (bytesSent < totalBytesSent) {
-    if ((bytesSent = sendto(commInfo.udpsock, pkt0, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+    if ((bytesSent = sendto(s_commInfo.udpsock, pkt0, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
       perror("ERROR (sendInterestToTracker) sendto");
       exit(1);
     }
     totalBytesSent += bytesSent;
   }
-  printf("client %d sent %d bytes to tracker\n", commInfo.clientid, totalBytesSent);
+  printf("client %d sent %d bytes to tracker\n", s_commInfo.clientid, totalBytesSent);
   free(pkt0);
   
   //
@@ -172,7 +153,7 @@ int sendInterestToTracker()
 
   FILE *fp;
   char filename[20];
-  sprintf(filename, "%02d.out", commInfo.clientid);
+  sprintf(filename, "%02d.out", s_commInfo.clientid);
   fp = fopen(filename, "a");
   if (fp == NULL) {
     perror("ERROR opening client log file for append");
@@ -254,9 +235,9 @@ void clientDoWork(int clientid, int32_t managerport)
 
   p_buffer = (u_char *)&buffer;
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
-  commInfo.pktdelay = client->pktdelay;
-  commInfo.pktprob = client->pktprob;
-  commInfo.clientid = client->id;
+  s_commInfo.pktdelay = client->pktdelay;
+  s_commInfo.pktprob = client->pktprob;
+  s_commInfo.clientid = client->id;
 
   ///*DEBUG*/printf("Client %d:\n", client->id);
   ///*DEBUG*/printf("pktdelay %d, pktprob %d, numfiles %d, numtasks %d\n", client->pktdelay,
@@ -285,7 +266,7 @@ void clientDoWork(int clientid, int32_t managerport)
     int32_t n_trackerport = 0;
     memcpy(&n_trackerport, &portmsg, sizeof(int32_t));
     trackerport = ntohl(n_trackerport);
-    commInfo.trackerport = trackerport;
+    s_commInfo.trackerport = trackerport;
     ///*DEBUG*/printf("client got tracker port %d from manager\n", trackerport);
   }
 
@@ -297,7 +278,7 @@ void clientDoWork(int clientid, int32_t managerport)
      exit(1);
   }
   clientport = ntohs(serv_addr.sin_port);
-  commInfo.myport = clientport;
+  s_commInfo.myport = clientport;
 
   //
   // Create UDP socket using the port number everyone know us by
@@ -310,7 +291,7 @@ void clientDoWork(int clientid, int32_t managerport)
     perror("ERROR (setupTrackerUDPComms) on tracker UDP socket");
     exit(1);
   }
-  commInfo.udpsock = udpsock;
+  s_commInfo.udpsock = udpsock;
 
   // lose the pesky "Address already in use" error message
   int yes = 1;
@@ -371,7 +352,7 @@ void clientDoWork(int clientid, int32_t managerport)
 
 
   //
-  // Populate datastructure with the current files I have
+  // Populate datastructure with the current files I own already
   // 
   for (int i = 0; i < client->numfiles; i++) {
     char *filename = (char *)&(client->files[i]);
@@ -394,43 +375,34 @@ void clientDoWork(int clientid, int32_t managerport)
     fileinfo.numsegments = (filesize / SEGMENT_SIZE) + 1;
     strncpy(fileinfo.name, filename, MAX_FILENAME);
     fileinfo.fp = filecontents;
-    files[i] = fileinfo;
-    numHaveFiles++;
+    s_ownedFiles[i] = fileinfo;
+    s_numOwnedFiles++;
   }
-  /*DEBUG*/printf("client %d: Has %d files\n", client->id, numHaveFiles);
-  /*DEBUG*/for (int i = 0; i < numHaveFiles; i++) {
-  /*DEBUG*/  struct FileInfo *fi = &files[i];
-  /*DEBUG*/  printf("   * file %s of size %lu with %d segments\n", fi->name, fi->size, fi->numsegments);
+  /*DEBUG*/printf("Client %d: owns %d files\n", client->id, s_numOwnedFiles);
+  /*DEBUG*/for (int i = 0; i < s_numOwnedFiles; i++) {
+  /*DEBUG*/  struct FileInfo *fi = &s_ownedFiles[i];
+  /*DEBUG*/  printf(" File %d: %s of size %lu with %d segments\n", i, fi->name, fi->size, fi->numsegments);
   /*DEBUG*/}
 
   //
-  // Populate datastructure with downloads to complete
+  // Populate datastructure with s_downloads to complete
   //
-  struct Download {
-    int starttime;
-    int share;
-    bool enabled;
-    char filename[MAX_FILENAME];
-  };
-
   for (int i = 0; i < MAX_FILES; i++) {
-    downloadState[i] = false;
+    s_downloadState[i] = false;
   }
-  if (client->numtasks > 0) {
-    for (int i = 0; i < client->numtasks; i++) {
-      struct Task *t = (struct Task *)&client->tasks[i];
-      struct Download d;
-      d.starttime = t->starttime;
-      d.share = t->share;
-      d.enabled = false;
-      memcpy(&d.filename, &t->file, MAX_FILENAME);
-      memcpy(&downloads[numDownloads], &d, sizeof(struct Download));
+  for (int i = 0; i < client->numtasks; i++) {
+    struct Task *t = (struct Task *)&client->tasks[i];
+    struct Download d;
+    d.starttime = t->starttime;
+    d.share = t->share;
+    d.enabled = false;
+    memcpy(&d.filename, &t->file, MAX_FILENAME);
+    memcpy(&s_downloads[s_numDownloads], &d, sizeof(struct Download));
 
-      int (*fp)();
-     	fp = enableDownload;
-	    Timers_AddTimer(d.starttime, fp, (long*)numDownloads);
-      numDownloads++;
-    }
+    int (*fp)();
+   	fp = enableDownload;
+    Timers_AddTimer(d.starttime, fp, (long*)s_numDownloads);
+    s_numDownloads++;
   }
 
   //
@@ -455,7 +427,7 @@ void clientDoWork(int clientid, int32_t managerport)
     //
     int (*fp)();
     fp = sendInterestToTracker;
-    Timers_AddTimer(commInfo.pktdelay, fp, (int*)1);
+    Timers_AddTimer(s_commInfo.pktdelay, fp, (int*)1);
 
 		tmv.tv_sec = 3; tmv.tv_usec = 0; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
@@ -484,96 +456,6 @@ void clientDoWork(int clientid, int32_t managerport)
 			}
 		}
 	}
-
-  // one-to-one file transfer testing
-//  if (client->numtasks > 0) {
-//    struct Task *t = (struct Task *)&client->tasks[0];
-//    //
-//    // GROUP_SHOW_INTEREST (c -> t)
-//    //
-//    int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
-//    int16_t n_cid = htons(client->id);
-//    int16_t n_numfiles = htons(1);
-//    int16_t n_type;
-//    int16_t n_pktsize;
-//
-//    // figure out type
-//    bool haveFileAlready = false;
-//    for (int i = 0; i < numHaveFiles; i++) {
-//      struct FileInfo *fi = &files[i];
-//      if (strcmp(fi->name, t->file) == 0) {
-//        haveFileAlready = true;
-//        break;
-//      }
-//    }
-//    if (!haveFileAlready && t->share == 0) {
-//      // request a group, but not willing to share
-//      n_type = htons(0);
-//    } else if (!haveFileAlready && t->share == 1) {
-//      // request a group, and willing to share
-//      n_type = htons(1);
-//    } else if (haveFileAlready && t->share == 1) {
-//      // show interest only, do not need a group, willing to share
-//      n_type = htons(2);
-//    }
-//    printf("file %s has type %d\n", t->file, ntohs(n_type));
-//
-//    // Setup UDP socket to Tracker
-//    struct sockaddr_in si_other;
-//    int udpsock;
-//    socklen_t slen;
-//    slen = sizeof(si_other);
-//    if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-//      perror("ERROR (clientDoWork) UDP socket creation");
-//      exit(1);
-//    }
-//    memset((char *) &si_other, 0, sizeof(si_other));
-//    si_other.sin_family = AF_INET;
-//    si_other.sin_port = htons(trackerport); // set tracker port we want to send to
-//
-//    {
-//      // Create packet and send it
-//      // pktsize(16bit)
-//      // msgtype (16bit)
-//      // client_id(16bit)
-//      // numfiles(16bit)
-//      // n * filename(32bytes)
-//      // type(16bit)
-//      int numfiles = 1; // TODO should be dynamic at later phase
-//      int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * numfiles));
-//      u_char *pkt = malloc(pktsize);
-//      printf("client %d: size of one file packet = %d\n", client->id, pktsize);
-//      n_pktsize = htons(pktsize);
-//	    memset(pkt, 0, pktsize);
-//      memcpy(pkt, &n_pktsize, sizeof(int16_t));
-//      memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
-//      memcpy(pkt+4, &n_cid, sizeof(int16_t));
-//      memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
-//      memcpy(pkt+8, &t->file, MAX_FILENAME);
-//      memcpy(pkt+8+MAX_FILENAME, &n_type, sizeof(int16_t));
-//
-//      int bytesSent = -1;
-//      int totalBytesSent = 0;
-//      while (bytesSent < totalBytesSent) {
-//        if ((bytesSent = sendto(udpsock, pkt, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
-//          perror("ERROR (clientDoWork) sendto");
-//          exit(1);
-//        }
-//        totalBytesSent += bytesSent;
-//      }
-//      printf("client %d sent %d bytes to tracker\n", client->id, totalBytesSent);
-//      free(pkt);
-//    }
-//    
-//    // TODO log the packet that was just sent to tracker
-//    
-//    {
-//    }
-//
-//  }
-  
-
-
 
   // TODO should terminate if downloading tasks are complete and no
   // segment requests from other clients for 2 rounds of group update

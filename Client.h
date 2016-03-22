@@ -30,6 +30,9 @@ struct Download {
   int share;
   bool enabled;
   char filename[MAX_FILENAME];
+  int fileSize;
+  int numFileSegments;
+  u_char *rawFile;
 };
 
 
@@ -55,7 +58,7 @@ struct Client
   int id;
   int pktdelay; // delay (msec) - amount of time to wait before replying to another client with a segment
   int pktprob;  // drop probabilty
-  int numfiles;
+  int numfiles; // files the client owns 
   int numtasks;
   char files[MAX_FILES][MAX_FILENAME];
   struct Task tasks[MAX_FILES][sizeof(struct Task)];
