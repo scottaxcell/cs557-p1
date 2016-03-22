@@ -17,15 +17,54 @@
 #include <arpa/inet.h>
 // end
 
-//
+#define TRACKER_FILENAME "tracker.out"
+
+// keep track of files and clients
+static struct ClientAddr s_clientAddrs[MAX_CLIENTS];
+static int s_numClientAddrs = 0;
+
+static struct Group s_groups[MAX_FILES];
+static int s_numGroups = 0;
+
+
+void dumpTrackerClientAddrs(struct ClientAddr clientAddrs[])
+{
+  printf("Tracker has addresses for %d clients:\n", s_numClientAddrs);
+  for (int i = 0; i < s_numClientAddrs; i++) {
+    struct ClientAddr *ca = &clientAddrs[i];
+    printf("ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
+  }
+}
+
+void dumpTrackerGroups(struct Group groups[])
+{
+  printf("Tracker knows about %d groups\n", s_numGroups);
+  for (int i = 0; i < s_numGroups; i++) {
+    struct Group *g = &groups[i];
+    printf("Group %s:\n", g->filename);
+    printf("Sharing Clients: ");
+    for (int j = 0; j < MAX_CLIENTS; j++) {
+      printf("%d:%d ", j, g->sharingClients[j]);
+    }
+    printf("\nDownloading Clients: ");
+    for (int j = 0; j < MAX_CLIENTS; j++) {
+      printf("%d:%d ", j, g->downClients[j]);
+    }
+    printf("\n");
+  }
+}
+
 // Tracker worker
 //
 void trackerDoWork(int udpsock, int32_t trackerport)
 {
+  // zero out our databases
+  memset(s_clientAddrs, 0, sizeof(s_clientAddrs));
+  memset(s_groups, 0, sizeof(s_groups));
+
   // write out log information
   FILE *fp;
-  const char *filename = "tracker.out";
-  fp = fopen(filename, "w");
+  fp = fopen(TRACKER_FILENAME, "w");
   if (fp == NULL) {
     perror("ERROR opening client log file");
     exit(1);
@@ -38,13 +77,6 @@ void trackerDoWork(int udpsock, int32_t trackerport)
   socklen_t fromlen;
   struct sockaddr_in addr;
   fromlen = sizeof(addr);
-
-  // keep track of files and clients
-  struct ClientAddr clientAddrs[MAX_CLIENTS];
-  int numClientAddrs = 0;
-
-  struct Group groups[MAX_FILES];
-  int numGroups = 0;
 
   while (true) {
 
@@ -113,15 +145,15 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     // update client address database
     //
     bool haveClientAddr = false;
-    for (int i = 0; i < numClientAddrs; i++) {
-      struct ClientAddr *ca = &clientAddrs[i];
+    for (int i = 0; i < s_numClientAddrs; i++) {
+      struct ClientAddr *ca = &s_clientAddrs[i];
       if (ca->id == cid) {
         haveClientAddr = true;
         break;
       }
     }
     if (!haveClientAddr) {
-      clientAddrs[numClientAddrs++] = clientaddr;
+      s_clientAddrs[s_numClientAddrs++] = clientaddr;
     }
     
     /*DEBUG*/printf("Tracker received %d bytes from client %d at %s on port %d\n", totalBytesRecv, clientaddr.id, clientaddr.ip, clientaddr.port);
@@ -153,11 +185,11 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       printf("  file = %s type = %d\n", reqGroup.filename, type);
 
       //
-      // Update groups database
+      // Update s_groups database
       //
       bool knowGroupAlready = false;
-      for (int i = 0; i < numGroups; i++) {
-        struct Group *group = &groups[i];
+      for (int i = 0; i < s_numGroups; i++) {
+        struct Group *group = &s_groups[i];
         if (strcmp(group->filename, reqGroup.filename)) {
           // already tracking this group so update sharing and downloading clients
           if (type == 0) {
@@ -177,7 +209,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       }
       if (!knowGroupAlready) {
         // start tracking this group!
-        struct Group *group = &groups[numGroups++];
+        struct Group *group = &s_groups[s_numGroups++];
         strncpy(group->filename, reqGroup.filename, sizeof(reqGroup.filename));
         // initialize client arrays
         for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -209,8 +241,8 @@ void trackerDoWork(int udpsock, int32_t trackerport)
         reqGroup->sharingClients[i] = 0;
       }
 
-      for (int j = 0; j < numGroups; j++) {
-        struct Group *group = &groups[j];
+      for (int j = 0; j < s_numGroups; j++) {
+        struct Group *group = &s_groups[j];
         if (strcmp(reqGroup->filename, group->filename)) {
           // populate the requested group with client information
           for (int k = 0; k < MAX_CLIENTS; k++) {
@@ -266,8 +298,8 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       
       for (int j = 0; j < MAX_CLIENTS; j++) {
         if (reqGroup->sharingClients[j] == 1) {
-          for (int k = 0; k < numClientAddrs; k++) {
-            struct ClientAddr *ca = &clientAddrs[i];
+          for (int k = 0; k < s_numClientAddrs; k++) {
+            struct ClientAddr *ca = &s_clientAddrs[i];
             if (ca->id == j) {
               int16_t n_id = htons(j);
               memcpy(clientPkt, &n_id, sizeof(n_id));
@@ -305,7 +337,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     //struct timeval tv;
     //gettimeofday(&tv, NULL);
 
-    //fp = fopen(filename, "a");
+    //fp = fopen(TRACKER_FILENAME, "a");
     //if (fp == NULL) {
     //  perror("ERROR opening client log file");
     //  exit(1);

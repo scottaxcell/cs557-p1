@@ -30,6 +30,10 @@ void setupManagerTCPComms(int *tcpsock, int *managerport, char **ipaddr);
 //
 int main(int argc, const char* argv[])
 {
+  //=========================================================================
+  // MANAGER (parent process)
+  //=========================================================================
+
   //
   // Read the configuration file
   //
@@ -92,7 +96,7 @@ int main(int argc, const char* argv[])
     sendUDPPortToManager(managerport, trackerport, ipaddr);
 
     //
-    // list for clients and give them what they want
+    // listen for clients and give them what they want
     //
     trackerDoWork(udpsock, trackerport);
 
