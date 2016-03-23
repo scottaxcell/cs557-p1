@@ -1,3 +1,7 @@
+Assumption in manager.conf:
+A client with a file will also have a task to share that file.
+
+
 Note: Since all communication is between ports on a single host it appears
 that I don't have to worry about any network to host or host to network
 translation of integers in packet payloads.
@@ -22,7 +26,7 @@ http://www.gnu.org/software/libc/manual/html_node/Server-Example.html
 
 
 TODO:
-* (client) verify messages being sent are correct
+DONE * (client) verify messages being sent are correct
 * (tracker) verify messages from clients are correct
 * (tracker) verify static databases are being updated correctly
 * (client) verify static databases are being updated correctly

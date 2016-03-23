@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <stdbool.h> // bool
 
+#include "Utils.h"
 #include "Client.h"
 #include "timers-c.h"
 
@@ -18,7 +19,7 @@
 // end
 /*
 GROUP_SHOW_INTEREST, // client tells tracker about itself
-  pktsize, msgtype, client id, number files, filename, type, ...
+  pktsize, msgtype, client id, number files, filename, file size, type, ...
 
 GROUP_ASSIGN, // tracker tells client about other clients
   pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
@@ -48,6 +49,87 @@ static struct FileInfo s_ownedFiles[MAX_FILES];
 static int s_numOwnedFiles = 0;
 
 
+// TODO dumpClientDownloads()
+// TODO dumpClientOwnedFiles()
+
+void dumpClientCommInfo()
+{
+  printf("Client %d s_commInfo: ", s_commInfo.clientid);
+  printf("port %d, udpsock %d, pktdelay %d, pktprob %d, trackerport %d\n", s_commInfo.myport, s_commInfo.udpsock, s_commInfo.pktdelay, s_commInfo.pktprob, s_commInfo.trackerport);
+}
+
+void dumpClientClientAddrs(struct ClientAddr clientAddrs[], int numClientAddrs)
+{
+  printf("Client %d has addresses for %d clients:\n", s_commInfo.clientid, numClientAddrs);
+  for (int i = 0; i < numClientAddrs; i++) {
+    struct ClientAddr *ca = &clientAddrs[i];
+    printf("ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
+  }
+}
+
+void dumpClientGroups(struct Group groups[], int numGroups)
+{
+  printf("Client %d knows about %d groups\n", s_commInfo.clientid, numGroups);
+  for (int i = 0; i < numGroups; i++) {
+    struct Group *g = &groups[i];
+    printf("Group %s:\n", g->filename);
+    printf("Sharing Clients: ");
+    for (int j = 0; j < MAX_CLIENTS; j++) {
+      printf("%d:%d ", j, g->sharingClients[j]);
+    }
+    printf("\nDownloading Clients: ");
+    for (int j = 0; j < MAX_CLIENTS; j++) {
+      printf("%d:%d ", j, g->downClients[j]);
+    }
+    printf("\n");
+  }
+}
+
+void dumpDeserializedMsg(u_char *pktDontTouch)
+{
+  // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
+  u_char *pkt = pktDontTouch;
+
+  int16_t n_pktsize;
+  memcpy(&n_pktsize, pkt, sizeof(int16_t));
+  int16_t pktsize = ntohs(n_pktsize);
+  pkt += 2; 
+
+  int16_t n_msgtype;
+  memcpy(&n_msgtype, pkt, sizeof(int16_t));
+  int16_t msgtype = ntohs(n_msgtype);
+  pkt += 2; 
+
+  int16_t n_id;
+  memcpy(&n_id, pkt, sizeof(int16_t));
+  int16_t id = ntohs(n_id);
+  pkt += 2; 
+
+  int16_t n_numfiles;
+  memcpy(&n_numfiles, pkt, sizeof(int16_t));
+  int16_t numfiles = ntohs(n_numfiles);
+  pkt += 2; 
+
+  printf("Client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
+  for (int i = 0; i < numfiles; i++) {
+    char filename[MAX_FILENAME];
+    memcpy(filename, pkt, MAX_FILENAME);
+    pkt += MAX_FILENAME;
+
+    int16_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(int16_t));
+    int16_t filesize = ntohs(n_filesize);
+    pkt += 2;
+
+    int16_t n_type;
+    memcpy(&n_type, pkt, sizeof(int16_t));
+    int16_t type = ntohs(n_type);
+    pkt += 2;
+    printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
+  }
+
+}
+
 int enableDownload(int i)
 {
   /*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
@@ -60,49 +142,57 @@ int enableDownload(int i)
 //
 int sendInterestToTracker()
 {
-  printf("Fired sendInterestToTracker\n");
   //
   // GROUP_SHOW_INTEREST (client -> tracker)
   //
+  // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
+
   if (s_numDownloads == 0)
     return -1;
 
   char logstr[(s_numDownloads*MAX_FILENAME) + 56];
   memset(&logstr, '\0', sizeof(logstr));
-  int16_t n_msgtype = htons(31); // GROUP_SHOW_INTEREST
-  int16_t n_cid = htons(s_commInfo.clientid);
-  int16_t n_numfiles = htons(s_numDownloads);
-  // Create packet and send it
-  // pktsize(16bit)
-  // msgtype (16bit)
-  // client_id(16bit)
-  // numfiles(16bit)
-  // n * ( filename(32bytes) type(16bit) )
-  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t)) * s_numDownloads));
-  u_char *pkt = malloc(pktsize);
-  u_char *pkt0 = pkt; // keep pointer to beginning so we can free later
-  printf("client %d: size of interest packet = %d\n", s_commInfo.clientid, pktsize);
+
+  // Serialize message
+  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + (2*sizeof(int16_t))) * s_numDownloads));
   int16_t n_pktsize = htons(pktsize);
+
+  int16_t n_msgtype = htons(0); // GROUP_SHOW_INTEREST
+
+  int16_t n_cid = htons(s_commInfo.clientid);
+
+  // downloads holds files that I will just be sharing too
+  int16_t n_numfiles = htons(s_numDownloads);
+
+  u_char *pkt = malloc(pktsize);
   memset(pkt, 0, pktsize);
+  u_char *pkt0 = pkt; // keep pointer to beginning so we can free later
+
+  // fill up u_char for sending!
   memcpy(pkt, &n_pktsize, sizeof(int16_t));
   memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
   memcpy(pkt+4, &n_cid, sizeof(int16_t));
   memcpy(pkt+6, &n_numfiles, sizeof(int16_t));
-  pkt = pkt + 8;
+  pkt += 8;
 
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
+    d->filesize = 0;
 
-    // figure out type
-    int16_t n_type;
     bool haveFileAlready = false;
+
+    // check if we know the file size
     for (int i = 0; i < s_numOwnedFiles; i++) {
       struct FileInfo *fi = &s_ownedFiles[i];
       if (strcmp(fi->name, d->filename) == 0) {
         haveFileAlready = true;
+        d->filesize = fi->size;
         break;
       }
     }
+
+    // figure out type
+    int16_t n_type;
     if (!haveFileAlready && d->share == 0) {
       // request a group, but not willing to share
       n_type = htons(0);
@@ -113,25 +203,30 @@ int sendInterestToTracker()
       // show interest only, do not need a group, willing to share
       n_type = htons(2);
     }
-    printf("  client %d task file %s has type %d\n", s_commInfo.clientid, d->filename, ntohs(n_type));
 
     memcpy(pkt, &d->filename, MAX_FILENAME);
-    pkt = pkt + MAX_FILENAME;
+    pkt += MAX_FILENAME;
+
+    int16_t n_filesize = htons(d->filesize);
+    memcpy(pkt, &n_filesize, sizeof(int16_t));
+    pkt += 2;
+
     memcpy(pkt, &n_type, sizeof(int16_t));
-    pkt = pkt + 2;
+    pkt += 2;
 
     // for logging save off filename
     strcat(logstr, d->filename);
     strcat(logstr, " ");
   }
 
+  /*DEBUG*/
+  dumpDeserializedMsg(pkt0);
+
   struct sockaddr_in si_other;
   socklen_t slen;
   slen = sizeof(si_other);
   memset((char *) &si_other, 0, sizeof(si_other));
   si_other.sin_family = AF_INET;
-  printf("udpsock %d\n", s_commInfo.udpsock);
-  printf("tracker port %d\n", s_commInfo.trackerport);
   si_other.sin_port = htons(s_commInfo.trackerport); // set tracker port we want to send to
 
   int bytesSent = -1, totalBytesSent = 0;
@@ -142,7 +237,6 @@ int sendInterestToTracker()
     }
     totalBytesSent += bytesSent;
   }
-  printf("client %d sent %d bytes to tracker\n", s_commInfo.clientid, totalBytesSent);
   free(pkt0);
   
   //
@@ -172,6 +266,11 @@ int sendInterestToTracker()
 //
 void clientDoWork(int clientid, int32_t managerport)
 {
+  // clear out databases in case another process had already populated these
+  memset(s_downloadState, 0, sizeof(s_downloadState));
+  memset(s_downloads, 0, sizeof(s_downloads));
+  memset(s_ownedFiles, 0, sizeof(s_ownedFiles));
+  memset(&s_commInfo, 0, sizeof(s_commInfo));
 
   //
   // Setup TCP socket for receiving configuration information from the manager
@@ -293,6 +392,9 @@ void clientDoWork(int clientid, int32_t managerport)
   }
   s_commInfo.udpsock = udpsock;
 
+
+  /*DEBUG*/dumpClientCommInfo();
+
   // lose the pesky "Address already in use" error message
   int yes = 1;
   if (setsockopt(udpsock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
@@ -378,6 +480,7 @@ void clientDoWork(int clientid, int32_t managerport)
     s_ownedFiles[i] = fileinfo;
     s_numOwnedFiles++;
   }
+  ///*DEBUG*/dumpClientOwnedFiles();
   /*DEBUG*/printf("Client %d: owns %d files\n", client->id, s_numOwnedFiles);
   /*DEBUG*/for (int i = 0; i < s_numOwnedFiles; i++) {
   /*DEBUG*/  struct FileInfo *fi = &s_ownedFiles[i];
@@ -404,10 +507,14 @@ void clientDoWork(int clientid, int32_t managerport)
     Timers_AddTimer(d.starttime, fp, (long*)s_numDownloads);
     s_numDownloads++;
   }
+  ///*DEBUG*/dumpClientDownloads();
+  /*DEBUG*/printf("Client %d: has %ld downloads\n", s_commInfo.clientid, s_numDownloads);
+  /*DEBUG*/for (int i = 0; i < s_numDownloads; i++) {
+  /*DEBUG*/  struct Download *d = &s_downloads[i];
+  /*DEBUG*/  printf(" Download %d: %s\n", i, d->filename);
+  /*DEBUG*/}
 
-  //
-  // TODO Event loop doing the actual work now
-  //
+
 	struct timeval tmv;
 	int status;
   fd_set active_fd_set, read_fd_set;

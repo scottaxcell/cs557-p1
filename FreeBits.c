@@ -229,8 +229,12 @@ int main(int argc, const char* argv[])
         if (errno == ECHILD)
           break; // no more child processes
       } else {
-        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-          perror("pid exit failed");
+        //if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        //  perror("pid exit failed");
+        //  exit(1);
+        //}
+        if (!WIFEXITED(status)) {
+          printf("pid %d did not exit normally", done);
           exit(1);
         }
       }

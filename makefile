@@ -14,13 +14,13 @@ default: all
 
 all: FreeBits
 
-Client.o: Client.c Client.h
+Client.o: Client.c Client.h Utils.h
 	$(CC) $(CFLAGS) -c Client.c
 
-Tracker.o: Tracker.c Tracker.h
+Tracker.o: Tracker.c Tracker.h Utils.h
 	$(CC) $(CFLAGS) -c Tracker.c
 
-FreeBits.o: FreeBits.c Manager.h Client.h Tracker.h
+FreeBits.o: FreeBits.c Manager.h Client.h Tracker.h Utils.h
 	$(CC) $(CFLAGS) -c FreeBits.c
 
 FreeBits: $(TIMERSC_LIB_OBJS) FreeBits.o Client.o Tracker.o

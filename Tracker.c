@@ -7,6 +7,7 @@
 #include <stdbool.h> // bool
 #include <sys/time.h> // bool
 
+#include "Utils.h"
 #include "Tracker.h"
 
 // socket sources
@@ -26,21 +27,288 @@ static int s_numClientAddrs = 0;
 static struct Group s_groups[MAX_FILES];
 static int s_numGroups = 0;
 
+static struct Group s_reqGroups[MAX_FILES];
+static int s_numReqGroups = 0;
 
-void dumpTrackerClientAddrs(struct ClientAddr clientAddrs[])
+
+void dumpGroupAssignMsg(u_char *pktDontTouch)
+{
+  u_char *pkt = pktDontTouch;
+
+}
+
+void dumpRequestedGroups()
+{
+  printf("Tracker has been requested info about %d groups\n", s_numReqGroups);
+  for (int i = 0; i < s_numReqGroups; i++) {
+    struct Group *g = &s_reqGroups[i];
+    printf("Group %s\n", g->filename);
+  }
+  printf("\n");
+}
+
+
+
+u_char * createGroupAssignPkt(int16_t *returnPktSize)
+{
+  // GROUP_ASSIGN, // tracker tells client about other clients
+  // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
+
+  // figure out packet size
+  int16_t pktsize = (sizeof(int16_t) * 3); // pktsize, msgtype, num files
+  pktsize += ((MAX_FILENAME + (2 * sizeof(int16_t))) * s_numReqGroups); // (filename, file size, num neighbors) * n
+  for (int i = 0; i < s_numReqGroups; i++) {
+    struct Group *reqGroup = &s_reqGroups[i];
+    for (int j = 0; j < s_numGroups; j++) {
+      struct Group *group = &s_groups[j];
+      if (strcmp(reqGroup->filename, group->filename) == 0) {
+        for (int k = 0; k < MAX_CLIENTS; k++) {
+          if (group->sharingClients[k] == 1) {
+            pktsize += (sizeof(int16_t) * 2) + MAX_IP; // neighbor id, port, ip
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  *returnPktSize = pktsize;
+  int16_t n_pktsize = htons(pktsize);
+  int16_t n_msgtype = htons(42);
+  int16_t n_numfiles = htons(s_numReqGroups);
+
+  u_char *pkt = malloc(pktsize);
+  u_char *returnpkt = pkt;
+
+  memset(pkt, 0, pktsize); // zero out
+
+  memcpy(pkt, &n_pktsize, sizeof(int16_t));
+  pkt += 2;
+  memcpy(pkt, &n_msgtype, sizeof(int16_t));
+  pkt += 2;
+  memcpy(pkt, &n_numfiles, sizeof(int16_t));
+  pkt += 2;
+
+  for (int i = 0; i < s_numReqGroups; i++) {
+    struct Group *reqGroup = &s_reqGroups[i];
+
+    memcpy(pkt, &reqGroup->filename, MAX_FILENAME);
+    pkt += MAX_FILENAME;
+
+    int16_t filesize = 0;
+    int16_t numNeighbors = 0;
+    struct Group *group = NULL;
+    for (int j = 0; j < s_numGroups; j++) {
+      group = &s_groups[i];
+      if (strcmp(reqGroup->filename, group->filename) == 0) {
+        filesize = group->filesize;
+        for (int k = 0; k < MAX_CLIENTS; k++) {
+          if (group->sharingClients[k] == 1) {
+            numNeighbors++;
+          }
+        }
+        break;
+      }
+    }
+    int16_t n_filesize = htons(filesize);
+    memcpy(pkt, &n_filesize, sizeof(int16_t));
+    pkt += 2;
+    int16_t n_numNeighbors = htons(numNeighbors);
+    memcpy(pkt, &n_numNeighbors, sizeof(int16_t));
+    pkt += 2;
+    
+    if (group != NULL) {
+      for (int j = 0; j < MAX_CLIENTS; j++) {
+        if (group->sharingClients[j] == 1) {
+          for (int k = 0; k < s_numClientAddrs; k++) {
+            struct ClientAddr *ca = &s_clientAddrs[k];
+            if (ca->id == j) {
+              int16_t n_id = htons(j);
+              memcpy(pkt, &n_id, sizeof(int16_t));
+              pkt += sizeof(int16_t);
+
+              memcpy(pkt, &ca->ip, MAX_IP);
+              pkt += MAX_IP;
+
+              int16_t n_port = htons(ca->port);
+              memcpy(pkt, &n_port, sizeof(int16_t));
+              pkt += sizeof(int16_t);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return returnpkt;
+}
+
+void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
+{
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+
+  memset(&s_reqGroups, 0, sizeof(s_reqGroups));
+
+  // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
+  u_char *pkt = pktDontTouch;
+
+  int16_t n_pktsize;
+  memcpy(&n_pktsize, pkt, sizeof(int16_t));
+  int16_t pktsize = ntohs(n_pktsize);
+  pkt += 2; 
+
+  int16_t n_msgtype;
+  memcpy(&n_msgtype, pkt, sizeof(int16_t));
+  int16_t msgtype = ntohs(n_msgtype);
+  pkt += 2; 
+
+  int16_t n_id;
+  memcpy(&n_id, pkt, sizeof(int16_t));
+  int16_t id = ntohs(n_id);
+  pkt += 2; 
+
+  int16_t n_numfiles;
+  memcpy(&n_numfiles, pkt, sizeof(int16_t));
+  int16_t numfiles = ntohs(n_numfiles);
+  pkt += 2; 
+
+  printf("Client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
+
+  //
+  // update client address database
+  //
+  // get client ip and port
+  struct ClientAddr clientaddr;
+  clientaddr.id = id;
+  clientaddr.port = ntohs(cliaddr.sin_port);
+  char *ip = inet_ntoa(cliaddr.sin_addr);
+  memcpy(&clientaddr.ip, ip, MAX_IP);
+
+  bool haveClientAddr = false;
+  for (int i = 0; i < s_numClientAddrs; i++) {
+    struct ClientAddr *ca = &s_clientAddrs[i];
+    if (ca->id == id) {
+      haveClientAddr = true;
+      break;
+    }
+  }
+  if (!haveClientAddr) {
+    s_clientAddrs[s_numClientAddrs++] = clientaddr;
+  }
+    
+
+  char logstr[(numfiles*MAX_FILENAME) + 10];
+  memset(&logstr, '\0', sizeof(logstr));
+
+  struct Group reqGroup;
+
+  for (int i = 0; i < numfiles; i++) {
+    char filename[MAX_FILENAME];
+    memcpy(filename, pkt, MAX_FILENAME);
+    pkt += MAX_FILENAME;
+
+    // save requested filenames so we know what to send back
+    memcpy(&reqGroup.filename, filename, MAX_FILENAME);
+    s_reqGroups[s_numReqGroups++] = reqGroup;
+
+    int16_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(int16_t));
+    int16_t filesize = ntohs(n_filesize);
+    pkt += 2;
+
+    int16_t n_type;
+    memcpy(&n_type, pkt, sizeof(int16_t));
+    int16_t type = ntohs(n_type);
+    pkt += 2;
+    printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
+
+    // for logging save off filename
+    strcat(logstr, filename);
+    strcat(logstr, " ");
+    
+    //
+    // Update group database
+    //
+    bool knowGroupAlready = false;
+    for (int i = 0; i < s_numGroups; i++) {
+      struct Group *group = &s_groups[i];
+      if (strcmp(group->filename, filename) == 0) {
+        // already tracking this group so update sharing and downloading clients
+        if (type == 0) {
+          // download only
+          group->downClients[id] = 1;
+        } else if (type == 1) {
+          // download and share
+          group->downClients[id] = 1;
+          group->sharingClients[id] = 1;
+        } else if (type == 2) {
+          // share only
+          group->sharingClients[id] = 1;
+        }
+        if (group->filesize == 0 && filesize != 0) {
+          group->filesize = filesize;
+        }
+        knowGroupAlready = true;
+        break;
+      }
+    }
+    if (!knowGroupAlready) {
+      // start tracking this group!
+      struct Group *group = &s_groups[s_numGroups++];
+      strncpy(group->filename, filename, sizeof(filename));
+      group->filesize = filesize;
+
+      // initialize client arrays
+      for (int i = 0; i < MAX_CLIENTS; i++) {
+        group->downClients[i] = 0;
+        group->sharingClients[i] = 0;
+      }
+      // update according to this clients group update
+      if (type == 0) {
+        // download only
+        group->downClients[id] = 1;
+      } else if (type == 1) {
+        // download and share
+        group->downClients[id] = 1;
+        group->sharingClients[id] = 1;
+      } else if (type == 2) {
+        // share only
+        group->sharingClients[id] = 1;
+      }
+    }
+  }
+  printf("\n");
+
+  //
+  // Log received packet
+  //
+  FILE *fp;
+  if ((fp = fopen(TRACKER_FILENAME, "a")) == NULL) {
+    perror("ERROR opening tracker log file for append");
+    exit(1);
+  }
+  fprintf(fp, "%d\t%lu.%d\t%s\n", id, tv.tv_sec, tv.tv_usec, logstr);
+  fclose(fp);
+}
+
+
+void dumpTrackerClientAddrs()
 {
   printf("Tracker has addresses for %d clients:\n", s_numClientAddrs);
   for (int i = 0; i < s_numClientAddrs; i++) {
-    struct ClientAddr *ca = &clientAddrs[i];
+    struct ClientAddr *ca = &s_clientAddrs[i];
     printf("ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
   }
+  printf("\n");
 }
 
-void dumpTrackerGroups(struct Group groups[])
+void dumpTrackerGroups()
 {
   printf("Tracker knows about %d groups\n", s_numGroups);
   for (int i = 0; i < s_numGroups; i++) {
-    struct Group *g = &groups[i];
+    struct Group *g = &s_groups[i];
     printf("Group %s:\n", g->filename);
     printf("Sharing Clients: ");
     for (int j = 0; j < MAX_CLIENTS; j++) {
@@ -52,6 +320,7 @@ void dumpTrackerGroups(struct Group groups[])
     }
     printf("\n");
   }
+  printf("\n");
 }
 
 // Tracker worker
@@ -106,7 +375,6 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     int16_t pktsize = ntohs(n_pktsize);
     printf("Tracker expects full packet to be size of %d\n", pktsize);
     u_char *buffer = malloc(pktsize);
-    u_char *buffer0 = buffer; // save position 0 for free
     memcpy(buffer, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
 
     // get the rest of the packet
@@ -120,244 +388,52 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       totalBytesRecv += bytesRecv;
     }
 
-    // deserialize message from client
-    int16_t n_msgtype;
-    int16_t n_cid;
-    int16_t n_numfiles;
-
-    memcpy(&n_msgtype, buffer+2, sizeof(int16_t));
-    int16_t msgtype = ntohs(n_msgtype);
-
-    memcpy(&n_cid, buffer+4, sizeof(int16_t));
-    int16_t cid = ntohs(n_cid);
-
-    memcpy(&n_numfiles, buffer+6, sizeof(int16_t));
-    int16_t numfiles = ntohs(n_numfiles);
-
-    // get client ip and port
-    struct ClientAddr clientaddr;
-    clientaddr.id = cid;
-    clientaddr.port = ntohs(addr.sin_port);
-    char *ip = inet_ntoa(addr.sin_addr);
-    memcpy(&clientaddr.ip, ip, MAX_IP);
-
     //
-    // update client address database
+    // Deserialize message from client
     //
-    bool haveClientAddr = false;
-    for (int i = 0; i < s_numClientAddrs; i++) {
-      struct ClientAddr *ca = &s_clientAddrs[i];
-      if (ca->id == cid) {
-        haveClientAddr = true;
-        break;
-      }
-    }
-    if (!haveClientAddr) {
-      s_clientAddrs[s_numClientAddrs++] = clientaddr;
-    }
-    
-    /*DEBUG*/printf("Tracker received %d bytes from client %d at %s on port %d\n", totalBytesRecv, clientaddr.id, clientaddr.ip, clientaddr.port);
-    /*DEBUG*/printf("  msgtype = %d, numfiles = %d\n", msgtype, numfiles);
-
-    //
-    // Pull out group request information
-    //
-    struct Group reqGroups[numfiles];
-
-    char logstr[(numfiles*MAX_FILENAME) + 10];
-    memset(&logstr, '\0', sizeof(logstr));
-
-    buffer = buffer + 8; // set pointer to first filename
-    for (int16_t i = 0; i < numfiles; i++) {
-      buffer += (i*MAX_FILENAME)+(i*2);
-
-      struct Group reqGroup;
-      memcpy(&reqGroup.filename, buffer, MAX_FILENAME);
-      memcpy(&reqGroups[i], &reqGroup, sizeof(reqGroup));
-
-      // for logging save off filename
-      //strcat(logstr, filename);
-      //strcat(logstr, " ");
-
-      int16_t n_type;
-      memcpy(&n_type, buffer+MAX_FILENAME, 2);
-      int16_t type = ntohs(n_type);
-      printf("  file = %s type = %d\n", reqGroup.filename, type);
-
-      //
-      // Update s_groups database
-      //
-      bool knowGroupAlready = false;
-      for (int i = 0; i < s_numGroups; i++) {
-        struct Group *group = &s_groups[i];
-        if (strcmp(group->filename, reqGroup.filename)) {
-          // already tracking this group so update sharing and downloading clients
-          if (type == 0) {
-            // download only
-            group->downClients[cid] = 1;
-          } else if (type == 1) {
-            // download and share
-            group->downClients[cid] = 1;
-            group->sharingClients[cid] = 1;
-          } else if (type == 2) {
-            // share only
-            group->sharingClients[cid] = 1;
-          }
-          knowGroupAlready = true;
-          break;
-        }
-      }
-      if (!knowGroupAlready) {
-        // start tracking this group!
-        struct Group *group = &s_groups[s_numGroups++];
-        strncpy(group->filename, reqGroup.filename, sizeof(reqGroup.filename));
-        // initialize client arrays
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-          group->downClients[i] = 0;
-          group->sharingClients[i] = 0;
-        }
-        // update according to this clients group update
-        if (type == 0) {
-          // download only
-          group->downClients[cid] = 1;
-        } else if (type == 1) {
-          // download and share
-          group->downClients[cid] = 1;
-          group->sharingClients[cid] = 1;
-        } else if (type == 2) {
-          // share only
-          group->sharingClients[cid] = 1;
-        }
-      }
-    }
-
-    //
-    // Update request group information with database
-    //
-    for (int i = 0; i < numfiles; i++) {
-      struct Group *reqGroup = &reqGroups[i];
-      for (int i = 0; i < MAX_CLIENTS; i++) {
-        reqGroup->downClients[i] = 0;
-        reqGroup->sharingClients[i] = 0;
-      }
-
-      for (int j = 0; j < s_numGroups; j++) {
-        struct Group *group = &s_groups[j];
-        if (strcmp(reqGroup->filename, group->filename)) {
-          // populate the requested group with client information
-          for (int k = 0; k < MAX_CLIENTS; k++) {
-            if (group->sharingClients[k] == 1) {
-              reqGroup->sharingClients[k] = 1;
-            }
-          }
-          break;
-        }
-      }
-    }
+    handleGroupUpdate(buffer, addr);
+    free(buffer);
+    /*DEBUG*/dumpTrackerClientAddrs();
+    /*DEBUG*/dumpTrackerGroups();
+    /*DEBUG*/dumpRequestedGroups();
 
     //
     // Send client request group information
     //
-    int16_t clientPktSize = (sizeof(int16_t) * 4); // pktsize, msgtype, numfiles, numneighbors
-    clientPktSize += (MAX_FILENAME * numfiles); // filenames
-    for (int i = 0; i < numfiles; i++) {
-      struct Group *reqGroup = &reqGroups[i];
-      for (int j = 0; j < MAX_CLIENTS; j++) {
-        if (reqGroup->sharingClients[j] == 1) {
-          clientPktSize += (sizeof(int16_t) * 2) + MAX_IP; // neighbor id, port, ip
-        }
+    int16_t sendPktSize = 0;
+    u_char *sendPkt = createGroupAssignPkt(&sendPktSize);
+    printf("Tracker sending pkt of size %d to client\n", sendPktSize);
+
+    int bytesSent = -1;
+    int totalBytesSent = 0;
+    while (bytesSent < totalBytesSent) {
+      if ((bytesSent = sendto(udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&addr, fromlen)) == -1) {
+        perror("ERROR (clientDoWork) sendto");
+        exit(1);
       }
+      totalBytesSent += bytesSent;
     }
-    u_char *clientPkt = malloc(clientPktSize);
-    u_char *clientPkt0 = clientPkt;
-    printf("Tracker sending pkt of size %d\n", clientPktSize);
-
-    int16_t n_clientPktSize = htons(clientPktSize);
-    int16_t n_clientMsgType = htons(42);
-    int16_t n_clientNumFiles = htons(numfiles);
-	  memset(clientPkt, 0, clientPktSize); // zero out
-    memcpy(clientPkt, &n_clientPktSize, sizeof(int16_t));
-    memcpy(clientPkt+2, &n_clientMsgType, sizeof(int16_t));
-    memcpy(clientPkt+4, &n_clientNumFiles, sizeof(int16_t));
-
-    clientPkt += 6;
-    for (int i = 0; i < numfiles; i++) {
-      struct Group *reqGroup = &reqGroups[i];
-
-      memcpy(clientPkt, &reqGroup->filename, MAX_FILENAME);
-      clientPkt += MAX_FILENAME;
-      int16_t numNeighbors = 0;
-      for (int j = 0; j < MAX_CLIENTS; j++) {
-        if (reqGroup->sharingClients[j] == 1) {
-          numNeighbors++;
-        }
-      }
-      int16_t n_numNeighbors = htons(numNeighbors);
-      memcpy(clientPkt, &n_numNeighbors, sizeof(int16_t));
-      clientPkt += sizeof(int16_t);
-      
-      for (int j = 0; j < MAX_CLIENTS; j++) {
-        if (reqGroup->sharingClients[j] == 1) {
-          for (int k = 0; k < s_numClientAddrs; k++) {
-            struct ClientAddr *ca = &s_clientAddrs[i];
-            if (ca->id == j) {
-              int16_t n_id = htons(j);
-              memcpy(clientPkt, &n_id, sizeof(n_id));
-              clientPkt += sizeof(int16_t);
-
-              memcpy(clientPkt, &ca->ip, MAX_IP);
-              clientPkt += MAX_IP;
-
-              int16_t n_port = htons(ca->port);
-              memcpy(clientPkt, &n_port, sizeof(n_port));
-              clientPkt += sizeof(int16_t);
-            }
-          }
-        }
-      }
-    }
-
-    //socklen_t slen;
-    //slen = sizeof(addr);
-    //int bytesSent = -1;
-    //int totalBytesSent = 0;
-    //while (bytesSent < totalBytesSent) {
-    //  if ((bytesSent = sendto(udpsock, clientPkt0, clientPktSize, 0, (struct sockaddr*)&addr, slen)) == -1) {
-    //    perror("ERROR (clientDoWork) sendto");
-    //    exit(1);
-    //  }
-    //  totalBytesSent += bytesSent;
-    //}
-    //printf("Tracker sent %d bytes to client\n", totalBytesSent);
-    // TODO write sent message to log file
+    printf("Tracker sent %d bytes to client\n", totalBytesSent);
 
     //
-    // Log received packet
+    // Log sent packet
     //
-    //struct timeval tv;
-    //gettimeofday(&tv, NULL);
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
 
-    //fp = fopen(TRACKER_FILENAME, "a");
-    //if (fp == NULL) {
-    //  perror("ERROR opening client log file");
-    //  exit(1);
-    //}
-    //fprintf(fp, "%d\t%lu.%d\t%s\n", clientaddr.id, tv.tv_sec, tv.tv_usec, logstr);
-    //fprintf(fp, "---- ");
-    //for (int i = 0; i < pktsize; i++) {
-    //  fprintf(fp, "%02x ", *(buffer0+i));
-    //}
-    //fprintf(fp, "\n");
-    //fclose(fp);
-
-    free(buffer0);
-    free(clientPkt0);
+    if ((fp = fopen(TRACKER_FILENAME, "a")) == NULL) {
+      perror("ERROR opening tracker log file");
+      exit(1);
+    }
+    fprintf(fp, "---- ");
+    for (int i = 0; i < sendPktSize; i++) {
+      fprintf(fp, "%02x ", *(sendPkt+i));
+    }
+    fprintf(fp, "\n");
+    fclose(fp);
+    
+    free(sendPkt);
   }
-
-  // TODO need to maintain a table of filename to all clients interested in sharing the file.
-  // interest means wants to download or has the file and wants to share
-  
-  // TODO listen on UDP port for service request - do as requested repeat
 
   // TODO terminate if no messages from clients for 30 seconds
   

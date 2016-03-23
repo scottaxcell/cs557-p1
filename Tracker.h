@@ -8,26 +8,6 @@
 // The tracker is supposed to just keep track of all nodes currently in the
 // network that are interested in sharing a particular file
 
-//
-// Address of a client who has contacted the tracker
-//
-struct ClientAddr
-{
-  int id;
-  int port;
-  char ip[MAX_IP];
-};
-  
-//
-// Group information for a file being tracked by the tracker
-//
-struct Group
-{
-  char filename[MAX_FILENAME];
-  int sharingClients[MAX_CLIENTS];
-  int downClients[MAX_CLIENTS];
-};
-
 void trackerDoWork(int udpsock, int32_t trackerport);
 
 #endif

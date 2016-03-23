@@ -1,20 +1,12 @@
 #ifndef CLIENT_H
 #define CLIENT_H
 
+#include <sys/types.h>
+
 #define MAX_FILENAME 33
 #define MAX_FILES 25
 #define MAX_CLIENTS 25
 #define SEGMENT_SIZE 32
-
-enum MSGTYPE {
-  GROUP_SHOW_INTEREST, // client tells tracker about itself
-  GROUP_ASSIGN, // tracker tells client about other clients
-  CLNT_INFO_REQ, // client asks other client for file info
-  CLNT_INFO_REP, // client tells other client about file segments it has
-  CLNT_SEG_REQ, // client asks other client for a file segment
-  CLNT_SEG_REP // client sends other client file segment
-
-};
 
 struct CommInfo {
   int32_t trackerport;
@@ -30,7 +22,7 @@ struct Download {
   int share;
   bool enabled;
   char filename[MAX_FILENAME];
-  int fileSize;
+  int filesize;
   int numFileSegments;
   u_char *rawFile;
 };
