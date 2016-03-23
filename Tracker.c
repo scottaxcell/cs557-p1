@@ -21,11 +21,11 @@
 #define TRACKER_FILENAME "tracker.out"
 
 // keep track of files and clients
-static struct ClientAddr s_clientAddrs[MAX_CLIENTS];
-static int s_numClientAddrs = 0;
+static struct ClientAddr st_clientAddrs[MAX_CLIENTS];
+static int st_numClientAddrs = 0;
 
-static struct Group s_groups[MAX_FILES];
-static int s_numGroups = 0;
+static struct Group st_groups[MAX_FILES];
+static int st_numGroups = 0;
 
 static struct Group s_reqGroups[MAX_FILES];
 static int s_numReqGroups = 0;
@@ -59,8 +59,8 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   pktsize += ((MAX_FILENAME + (2 * sizeof(int16_t))) * s_numReqGroups); // (filename, file size, num neighbors) * n
   for (int i = 0; i < s_numReqGroups; i++) {
     struct Group *reqGroup = &s_reqGroups[i];
-    for (int j = 0; j < s_numGroups; j++) {
-      struct Group *group = &s_groups[j];
+    for (int j = 0; j < st_numGroups; j++) {
+      struct Group *group = &st_groups[j];
       if (strcmp(reqGroup->filename, group->filename) == 0) {
         for (int k = 0; k < MAX_CLIENTS; k++) {
           if (group->sharingClients[k] == 1) {
@@ -98,8 +98,8 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
     int16_t filesize = 0;
     int16_t numNeighbors = 0;
     struct Group *group = NULL;
-    for (int j = 0; j < s_numGroups; j++) {
-      group = &s_groups[i];
+    for (int j = 0; j < st_numGroups; j++) {
+      group = &st_groups[i];
       if (strcmp(reqGroup->filename, group->filename) == 0) {
         filesize = group->filesize;
         for (int k = 0; k < MAX_CLIENTS; k++) {
@@ -120,8 +120,8 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
     if (group != NULL) {
       for (int j = 0; j < MAX_CLIENTS; j++) {
         if (group->sharingClients[j] == 1) {
-          for (int k = 0; k < s_numClientAddrs; k++) {
-            struct ClientAddr *ca = &s_clientAddrs[k];
+          for (int k = 0; k < st_numClientAddrs; k++) {
+            struct ClientAddr *ca = &st_clientAddrs[k];
             if (ca->id == j) {
               int16_t n_id = htons(j);
               memcpy(pkt, &n_id, sizeof(int16_t));
@@ -150,6 +150,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   gettimeofday(&tv, NULL);
 
   memset(&s_reqGroups, 0, sizeof(s_reqGroups));
+  s_numReqGroups = 0;
 
   // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
   u_char *pkt = pktDontTouch;
@@ -187,15 +188,15 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   memcpy(&clientaddr.ip, ip, MAX_IP);
 
   bool haveClientAddr = false;
-  for (int i = 0; i < s_numClientAddrs; i++) {
-    struct ClientAddr *ca = &s_clientAddrs[i];
+  for (int i = 0; i < st_numClientAddrs; i++) {
+    struct ClientAddr *ca = &st_clientAddrs[i];
     if (ca->id == id) {
       haveClientAddr = true;
       break;
     }
   }
   if (!haveClientAddr) {
-    s_clientAddrs[s_numClientAddrs++] = clientaddr;
+    st_clientAddrs[st_numClientAddrs++] = clientaddr;
   }
     
 
@@ -210,7 +211,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     pkt += MAX_FILENAME;
 
     // save requested filenames so we know what to send back
-    memcpy(&reqGroup.filename, filename, MAX_FILENAME);
+    memcpy(&reqGroup.filename, &filename, MAX_FILENAME);
     s_reqGroups[s_numReqGroups++] = reqGroup;
 
     int16_t n_filesize;
@@ -232,8 +233,8 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     // Update group database
     //
     bool knowGroupAlready = false;
-    for (int i = 0; i < s_numGroups; i++) {
-      struct Group *group = &s_groups[i];
+    for (int i = 0; i < st_numGroups; i++) {
+      struct Group *group = &st_groups[i];
       if (strcmp(group->filename, filename) == 0) {
         // already tracking this group so update sharing and downloading clients
         if (type == 0) {
@@ -256,7 +257,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     }
     if (!knowGroupAlready) {
       // start tracking this group!
-      struct Group *group = &s_groups[s_numGroups++];
+      struct Group *group = &st_groups[st_numGroups++];
       strncpy(group->filename, filename, sizeof(filename));
       group->filesize = filesize;
 
@@ -279,7 +280,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
       }
     }
   }
-  printf("\n");
+  printf("\n\n");
 
   //
   // Log received packet
@@ -296,9 +297,9 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
 
 void dumpTrackerClientAddrs()
 {
-  printf("Tracker has addresses for %d clients:\n", s_numClientAddrs);
-  for (int i = 0; i < s_numClientAddrs; i++) {
-    struct ClientAddr *ca = &s_clientAddrs[i];
+  printf("Tracker has addresses for %d clients:\n", st_numClientAddrs);
+  for (int i = 0; i < st_numClientAddrs; i++) {
+    struct ClientAddr *ca = &st_clientAddrs[i];
     printf("ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
   }
   printf("\n");
@@ -306,9 +307,9 @@ void dumpTrackerClientAddrs()
 
 void dumpTrackerGroups()
 {
-  printf("Tracker knows about %d groups\n", s_numGroups);
-  for (int i = 0; i < s_numGroups; i++) {
-    struct Group *g = &s_groups[i];
+  printf("Tracker knows about %d groups\n", st_numGroups);
+  for (int i = 0; i < st_numGroups; i++) {
+    struct Group *g = &st_groups[i];
     printf("Group %s:\n", g->filename);
     printf("Sharing Clients: ");
     for (int j = 0; j < MAX_CLIENTS; j++) {
@@ -328,8 +329,10 @@ void dumpTrackerGroups()
 void trackerDoWork(int udpsock, int32_t trackerport)
 {
   // zero out our databases
-  memset(s_clientAddrs, 0, sizeof(s_clientAddrs));
-  memset(s_groups, 0, sizeof(s_groups));
+  memset(st_clientAddrs, 0, sizeof(st_clientAddrs));
+  st_numClientAddrs = 0;
+  memset(st_groups, 0, sizeof(st_groups));
+  st_numGroups = 0;
 
   // write out log information
   FILE *fp;
@@ -367,8 +370,6 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       perror("ERROR initial manager recv failed");
       exit(1);
     }
-
-    // TODO get timestamp
 
     int16_t n_pktsize = 0;
     memcpy(&n_pktsize, &initBuff, sizeof(int16_t));

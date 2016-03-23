@@ -27,7 +27,7 @@ http://www.gnu.org/software/libc/manual/html_node/Server-Example.html
 
 TODO:
 DONE * (client) verify messages being sent are correct
-* (tracker) verify messages from clients are correct
+DONE * (tracker) verify messages from clients are correct
 * (tracker) verify static databases are being updated correctly
 * (client) verify static databases are being updated correctly
 * (tracker) verify messages being sent to clients are correct

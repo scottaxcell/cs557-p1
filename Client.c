@@ -48,6 +48,11 @@ static long s_numDownloads = 0;
 static struct FileInfo s_ownedFiles[MAX_FILES];
 static int s_numOwnedFiles = 0;
 
+static struct ClientAddr sc_clientAddrs[MAX_CLIENTS];
+static int sc_numClientAddrs = 0;
+
+static struct Group sc_groups[MAX_FILES];
+static int sc_numGroups = 0;
 
 // TODO dumpClientDownloads()
 // TODO dumpClientOwnedFiles()
@@ -58,11 +63,11 @@ void dumpClientCommInfo()
   printf("port %d, udpsock %d, pktdelay %d, pktprob %d, trackerport %d\n", s_commInfo.myport, s_commInfo.udpsock, s_commInfo.pktdelay, s_commInfo.pktprob, s_commInfo.trackerport);
 }
 
-void dumpClientClientAddrs(struct ClientAddr clientAddrs[], int numClientAddrs)
+void dumpClientClientAddrs()
 {
-  printf("Client %d has addresses for %d clients:\n", s_commInfo.clientid, numClientAddrs);
-  for (int i = 0; i < numClientAddrs; i++) {
-    struct ClientAddr *ca = &clientAddrs[i];
+  printf("Client %d has addresses for %d clients:\n", s_commInfo.clientid, sc_numClientAddrs);
+  for (int i = 0; i < sc_numClientAddrs; i++) {
+    struct ClientAddr *ca = &sc_clientAddrs[i];
     printf("ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
   }
 }
@@ -269,8 +274,14 @@ void clientDoWork(int clientid, int32_t managerport)
   // clear out databases in case another process had already populated these
   memset(s_downloadState, 0, sizeof(s_downloadState));
   memset(s_downloads, 0, sizeof(s_downloads));
+  s_numDownloads = 0;
   memset(s_ownedFiles, 0, sizeof(s_ownedFiles));
+  s_numOwnedFiles = 0;
   memset(&s_commInfo, 0, sizeof(s_commInfo));
+  memset(sc_clientAddrs, 0, sizeof(sc_clientAddrs));
+  sc_numClientAddrs = 0;
+  memset(sc_groups, 0, sizeof(sc_groups));
+  sc_numGroups = 0;
 
   //
   // Setup TCP socket for receiving configuration information from the manager
@@ -536,7 +547,7 @@ void clientDoWork(int clientid, int32_t managerport)
     fp = sendInterestToTracker;
     Timers_AddTimer(s_commInfo.pktdelay, fp, (int*)1);
 
-		tmv.tv_sec = 3; tmv.tv_usec = 0; // TODO figure out what to set timer to here
+		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
 		status = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &tmv);
 		
@@ -558,8 +569,56 @@ void clientDoWork(int clientid, int32_t managerport)
 			if (status > 0) {
 				/* The socket has received data.
 				   Perform packet processing. */
-        //handleRecvData();
-        
+        if (FD_ISSET(udpsock, &read_fd_set)) {
+          u_char initBuff[512]; // make this large to make life easy
+          int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&udp_serv_addr, &serv_addr_size);
+          if (bytesRecv == -1) {
+            perror("ERROR initial manager recv failed");
+            exit(1);
+          }
+
+          // get timestamp
+          struct timeval tv;
+          gettimeofday(&tv, NULL);
+
+          int16_t n_pktsize = 0;
+          memcpy(&n_pktsize, &initBuff, sizeof(int16_t));
+          int16_t pktsize = ntohs(n_pktsize);
+          u_char *pkt = malloc(pktsize);
+          memcpy(pkt, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
+
+          // get the rest of the packet
+          int totalBytesRecv = bytesRecv;
+          while (totalBytesRecv < pktsize) {
+            bytesRecv = recvfrom(udpsock, (pkt + bytesRecv), pktsize-512, 0, (struct sockaddr*)&udp_serv_addr, &serv_addr_size);
+            if (bytesRecv == -1) {
+              perror("ERROR additional recvfrom failed");
+              exit(1);
+            }
+            totalBytesRecv += bytesRecv;
+          }
+
+          // deserialize msgtype from client
+          int16_t n_msgtype;
+          memcpy(&n_msgtype, pkt+2, sizeof(int16_t));
+          int16_t msgtype = ntohs(n_msgtype);
+
+          if (msgtype == 42) {
+            // tracker -> client group update = 42
+            handleTrackerUpdate(pkt, pktsize, tv);
+          } else if (msgtype == 0) {
+            // client -> tracker group update = 0
+          } else if (msgtype == 1) {
+            // client -> client info req = 1
+          } else if (msgtype == 2) {
+            // client -> client info res = 2
+          } else if (msgtype == 3) {
+            // client -> client seg req = 3
+          } else if (msgtype == 4) {
+            // client -> client seg res = 4
+          }
+          free(pkt);
+			  }
 			}
 		}
 	}
@@ -568,6 +627,131 @@ void clientDoWork(int clientid, int32_t managerport)
   // segment requests from other clients for 2 rounds of group update
 
 }
+
+void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeval tv)
+{
+  // GROUP_ASSIGN, // tracker tells client about other clients
+  // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
+
+  u_char *pkt = pktDontTouch;
+  pkt += 4; // move past pktsize and msgtype
+
+  int16_t n_numfiles;
+  memcpy(&n_numfiles, pkt, sizeof(int16_t));
+  int16_t numfiles = ntohs(n_numfiles);
+  pkt += 2;
+
+  struct Group newGroups[numfiles];
+
+  for (int16_t i = 0; i < numfiles; i++) {
+    struct Group newGroup;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+      newGroup.downClients[i] = 0;
+      newGroup.sharingClients[i] = 0;
+    }
+    memcpy(&newGroup.filename, pkt, MAX_FILENAME);
+    pkt += MAX_FILENAME;
+
+    int16_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(int16_t));
+    pkt += sizeof(int16_t);
+    int16_t filesize = ntohs(n_filesize);
+    newGroup.filesize = filesize;
+
+
+    int16_t n_numneighbors;
+    memcpy(&n_numneighbors, pkt, sizeof(int16_t));
+    pkt += sizeof(int16_t);
+    int16_t numneighbors = ntohs(n_numneighbors);
+
+    for (int i = 0; i < numneighbors; i++) {
+      struct ClientAddr clientaddr;
+
+      int16_t n_id;
+      memcpy(&n_id, pkt, sizeof(int16_t));
+      pkt += sizeof(int16_t);
+      int16_t id = ntohs(n_id);
+      clientaddr.id = id;
+      newGroup.sharingClients[id] = 1;
+
+      char ip[MAX_IP];
+      memcpy(&ip, pkt, MAX_IP);
+      pkt += MAX_IP;
+      memcpy(&clientaddr.ip, ip, MAX_IP);
+
+      int16_t n_port;
+      memcpy(&n_port, pkt, sizeof(n_port));
+      pkt += sizeof(int16_t);
+      int16_t port = ntohs(n_port);
+      clientaddr.port = port;
+
+      //
+      // update client address database
+      //
+      bool haveClientAddr = false;
+      for (int i = 0; i < sc_numClientAddrs; i++) {
+        struct ClientAddr *ca = &sc_clientAddrs[i];
+        if (ca->id == clientaddr.id) {
+          haveClientAddr = true;
+          break;
+        }
+      }
+      if (!haveClientAddr) {
+        sc_clientAddrs[sc_numClientAddrs++] = clientaddr;
+      }
+    }
+
+    //
+    // update group knowledge (which clients are sharing
+    //
+    bool knowGroupAlready = false;
+    for (int i = 0; i < sc_numGroups; i++) {
+      struct Group *group = &sc_groups[i];
+      if (strcmp(group->filename, newGroup.filename) == 0) {
+        for (int j = 0; j < MAX_CLIENTS; j++) {
+          if (newGroup.sharingClients[j] == 1) {
+            group->sharingClients[j] = 1;
+          }
+        }
+        if (group->filesize == 0 && newGroup.filesize != 0) { // TODO might be to strict, just update always
+          group->filesize = newGroup.filesize;
+        }
+        knowGroupAlready = true;
+        break;
+      }
+    }
+    if (!knowGroupAlready) {
+      sc_groups[sc_numGroups++] = newGroup;
+    }
+
+    memcpy(&newGroups[i], &newGroup, sizeof(newGroup));
+  }
+
+  //
+  // Write log of received packet
+  //
+  FILE *fp;
+  char filename[20];
+  sprintf(filename, "%02d.out", s_commInfo.clientid);
+  fp = fopen(filename, "a");
+  if (fp == NULL) {
+    perror("ERROR opening client log file for append");
+    exit(1);
+  }
+  fprintf(fp, "%lu.%d\tFrom\tT\tGROUP_ASSIGN\t", tv.tv_sec, tv.tv_usec);
+  for (int i = 0; i < numfiles; i++) {
+    struct Group *ng = &newGroups[i];
+    fprintf(fp, "%s ", ng->filename);
+    for (int j = 0; j < MAX_CLIENTS; j++) {
+      if (ng->sharingClients[j] == 1 && j != s_commInfo.clientid) {
+        fprintf(fp, "%d ", j);
+      }
+    }
+  }
+  printf("\n");
+  fclose(fp);
+}
+
 
 //
 // Serialize client to be sent over the network

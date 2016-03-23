@@ -56,6 +56,7 @@ struct Client
   struct Task tasks[MAX_FILES][sizeof(struct Task)];
 };
 
+void handleTrackerUpdate(u_char *buffer, int16_t buffersize, struct timeval tv);
 void clientDoWork(int clientid, int32_t managerport);
 struct Client* serializeClient(struct Client *client);
 struct Client* deserializeClient(struct Client *client);
