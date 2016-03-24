@@ -7,6 +7,7 @@
 #define MAX_FILES 25
 #define MAX_CLIENTS 25
 #define SEGMENT_SIZE 32
+#define MAX_SEGMENTS 1024
 
 struct CommInfo {
   int32_t trackerport;
@@ -21,9 +22,10 @@ struct Download {
   int starttime;
   int share;
   bool enabled;
-  char filename[MAX_FILENAME];
-  int filesize;
+  uint16_t filesize;
   int numFileSegments;
+  char filename[MAX_FILENAME];
+  int fileSegments[MAX_SEGMENTS];
   u_char *rawFile;
 };
 
@@ -31,7 +33,7 @@ struct Download {
 struct FileInfo
 {
   int numsegments;
-  long size;
+  uint16_t size;
   char name[MAX_FILENAME];
   unsigned char *fp;
 };
@@ -53,10 +55,10 @@ struct Client
   int numfiles; // files the client owns 
   int numtasks;
   char files[MAX_FILES][MAX_FILENAME];
-  struct Task tasks[MAX_FILES][sizeof(struct Task)];
+  struct Task tasks[MAX_FILES];
 };
 
-void handleTrackerUpdate(u_char *buffer, int16_t buffersize, struct timeval tv);
+void handleTrackerGroupUpdate(u_char *buffer, int16_t buffersize, struct timeval tv);
 void clientDoWork(int clientid, int32_t managerport);
 struct Client* serializeClient(struct Client *client);
 struct Client* deserializeClient(struct Client *client);

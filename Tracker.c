@@ -27,9 +27,83 @@ static int st_numClientAddrs = 0;
 static struct Group st_groups[MAX_FILES];
 static int st_numGroups = 0;
 
-static struct Group s_reqGroups[MAX_FILES];
-static int s_numReqGroups = 0;
+static struct Group st_reqGroups[MAX_FILES];
+static int st_numReqGroups = 0;
 
+
+void dumpTrackerUpdateMsg(u_char *pktDontTouch)
+{
+  // GROUP_ASSIGN, // tracker tells client about other clients
+  // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
+
+  u_char *pkt = pktDontTouch;
+
+  int16_t n_pktsize;
+  memcpy(&n_pktsize, pkt, sizeof(int16_t));
+  pkt += 2; // move past pktsize and msgtype
+  int16_t pktsize = ntohs(n_pktsize);
+
+  int16_t n_msgtype;
+  memcpy(&n_msgtype, pkt, sizeof(int16_t));
+  pkt += 2; // move past pktsize and msgtype
+  int16_t msgtype = ntohs(n_msgtype);
+
+  int16_t n_numfiles;
+  memcpy(&n_numfiles, pkt, sizeof(int16_t));
+  int16_t numfiles = ntohs(n_numfiles);
+  pkt += 2;
+
+  printf("Tracker sending GROUP_ASSIGN: pktsize %d, msgtype %d, numfiles %d\n", pktsize, msgtype, numfiles);
+
+  struct Group newGroups[numfiles];
+
+  for (int16_t i = 0; i < numfiles; i++) {
+    struct Group newGroup;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+      newGroup.downClients[i] = 0;
+      newGroup.sharingClients[i] = 0;
+    }
+    memcpy(&newGroup.filename, pkt, MAX_FILENAME);
+    pkt += MAX_FILENAME;
+
+    uint16_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(n_filesize));
+    pkt += sizeof(n_filesize);
+    uint16_t filesize = ntohs(n_filesize);
+    newGroup.filesize = filesize;
+
+
+    uint16_t n_numneighbors;
+    memcpy(&n_numneighbors, pkt, sizeof(int16_t));
+    pkt += sizeof(int16_t);
+    uint16_t numneighbors = ntohs(n_numneighbors);
+
+    printf("File %d: %s, filesize %u, numneighbors %d: ", i, newGroup.filename, newGroup.filesize, numneighbors);
+    for (int i = 0; i < numneighbors; i++) {
+      struct ClientAddr clientaddr;
+
+      uint16_t n_id;
+      memcpy(&n_id, pkt, sizeof(int16_t));
+      pkt += sizeof(int16_t);
+      uint16_t id = ntohs(n_id);
+      clientaddr.id = id;
+      newGroup.sharingClients[id] = 1;
+
+      char ip[MAX_IP];
+      memcpy(&ip, pkt, MAX_IP);
+      pkt += MAX_IP;
+      memcpy(&clientaddr.ip, ip, MAX_IP);
+
+      uint16_t n_port;
+      memcpy(&n_port, pkt, sizeof(n_port));
+      pkt += sizeof(int16_t);
+      uint16_t port = ntohs(n_port);
+      clientaddr.port = port;
+      printf("%d %s %d\n", id, ip, port);
+    }
+    printf("\n");
+  }
+}
 
 void dumpGroupAssignMsg(u_char *pktDontTouch)
 {
@@ -39,9 +113,9 @@ void dumpGroupAssignMsg(u_char *pktDontTouch)
 
 void dumpRequestedGroups()
 {
-  printf("Tracker has been requested info about %d groups\n", s_numReqGroups);
-  for (int i = 0; i < s_numReqGroups; i++) {
-    struct Group *g = &s_reqGroups[i];
+  printf("Tracker has been requested info about %d groups\n", st_numReqGroups);
+  for (int i = 0; i < st_numReqGroups; i++) {
+    struct Group *g = &st_reqGroups[i];
     printf("Group %s\n", g->filename);
   }
   printf("\n");
@@ -56,12 +130,13 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
 
   // figure out packet size
   int16_t pktsize = (sizeof(int16_t) * 3); // pktsize, msgtype, num files
-  pktsize += ((MAX_FILENAME + (2 * sizeof(int16_t))) * s_numReqGroups); // (filename, file size, num neighbors) * n
-  for (int i = 0; i < s_numReqGroups; i++) {
-    struct Group *reqGroup = &s_reqGroups[i];
+  //pktsize += ((MAX_FILENAME + (2 * sizeof(int16_t))) * st_numReqGroups); // (filename, file size, num neighbors) * n
+  for (int i = 0; i < st_numReqGroups; i++) {
+    pktsize += (MAX_FILENAME + (2 * sizeof(int16_t))); // filename, file size, num neighbors
+    struct Group *reqGroup = &st_reqGroups[i];
     for (int j = 0; j < st_numGroups; j++) {
       struct Group *group = &st_groups[j];
-      if (strcmp(reqGroup->filename, group->filename) == 0) {
+      if (strncmp(reqGroup->filename, group->filename, MAX_FILENAME) == 0) {
         for (int k = 0; k < MAX_CLIENTS; k++) {
           if (group->sharingClients[k] == 1) {
             pktsize += (sizeof(int16_t) * 2) + MAX_IP; // neighbor id, port, ip
@@ -75,7 +150,7 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   *returnPktSize = pktsize;
   int16_t n_pktsize = htons(pktsize);
   int16_t n_msgtype = htons(42);
-  int16_t n_numfiles = htons(s_numReqGroups);
+  int16_t n_numfiles = htons(st_numReqGroups);
 
   u_char *pkt = malloc(pktsize);
   u_char *returnpkt = pkt;
@@ -89,18 +164,18 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   memcpy(pkt, &n_numfiles, sizeof(int16_t));
   pkt += 2;
 
-  for (int i = 0; i < s_numReqGroups; i++) {
-    struct Group *reqGroup = &s_reqGroups[i];
+  for (int i = 0; i < st_numReqGroups; i++) {
+    struct Group *reqGroup = &st_reqGroups[i];
 
     memcpy(pkt, &reqGroup->filename, MAX_FILENAME);
     pkt += MAX_FILENAME;
 
-    int16_t filesize = 0;
+    uint16_t filesize = 0;
     int16_t numNeighbors = 0;
     struct Group *group = NULL;
     for (int j = 0; j < st_numGroups; j++) {
       group = &st_groups[i];
-      if (strcmp(reqGroup->filename, group->filename) == 0) {
+      if (strncmp(reqGroup->filename, group->filename, MAX_FILENAME) == 0) {
         filesize = group->filesize;
         for (int k = 0; k < MAX_CLIENTS; k++) {
           if (group->sharingClients[k] == 1) {
@@ -110,9 +185,9 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
         break;
       }
     }
-    int16_t n_filesize = htons(filesize);
-    memcpy(pkt, &n_filesize, sizeof(int16_t));
-    pkt += 2;
+    uint16_t n_filesize = htons(filesize);
+    memcpy(pkt, &n_filesize, sizeof(n_filesize));
+    pkt += sizeof(n_filesize);
     int16_t n_numNeighbors = htons(numNeighbors);
     memcpy(pkt, &n_numNeighbors, sizeof(int16_t));
     pkt += 2;
@@ -130,7 +205,7 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
               memcpy(pkt, &ca->ip, MAX_IP);
               pkt += MAX_IP;
 
-              int16_t n_port = htons(ca->port);
+              uint16_t n_port = htons(ca->port);
               memcpy(pkt, &n_port, sizeof(int16_t));
               pkt += sizeof(int16_t);
               break;
@@ -144,13 +219,13 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   return returnpkt;
 }
 
-void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
+void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
 {
   struct timeval tv;
   gettimeofday(&tv, NULL);
 
-  memset(&s_reqGroups, 0, sizeof(s_reqGroups));
-  s_numReqGroups = 0;
+  memset(&st_reqGroups, 0, sizeof(st_reqGroups));
+  st_numReqGroups = 0;
 
   // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
   u_char *pkt = pktDontTouch;
@@ -195,7 +270,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
       break;
     }
   }
-  if (!haveClientAddr) {
+  if (haveClientAddr == false) {
     st_clientAddrs[st_numClientAddrs++] = clientaddr;
   }
     
@@ -204,6 +279,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   memset(&logstr, '\0', sizeof(logstr));
 
   struct Group reqGroup;
+  memset(&reqGroup, 0, sizeof(reqGroup));
 
   for (int i = 0; i < numfiles; i++) {
     char filename[MAX_FILENAME];
@@ -212,12 +288,12 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
 
     // save requested filenames so we know what to send back
     memcpy(&reqGroup.filename, &filename, MAX_FILENAME);
-    s_reqGroups[s_numReqGroups++] = reqGroup;
+    st_reqGroups[st_numReqGroups++] = reqGroup;
 
-    int16_t n_filesize;
-    memcpy(&n_filesize, pkt, sizeof(int16_t));
-    int16_t filesize = ntohs(n_filesize);
-    pkt += 2;
+    uint16_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(n_filesize));
+    pkt += sizeof(n_filesize);
+    uint16_t filesize = ntohs(n_filesize);
 
     int16_t n_type;
     memcpy(&n_type, pkt, sizeof(int16_t));
@@ -235,7 +311,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     bool knowGroupAlready = false;
     for (int i = 0; i < st_numGroups; i++) {
       struct Group *group = &st_groups[i];
-      if (strcmp(group->filename, filename) == 0) {
+      if (strncmp(group->filename, filename, MAX_FILENAME) == 0) {
         // already tracking this group so update sharing and downloading clients
         if (type == 0) {
           // download only
@@ -255,7 +331,7 @@ void handleGroupUpdate(u_char *pktDontTouch, struct sockaddr_in cliaddr)
         break;
       }
     }
-    if (!knowGroupAlready) {
+    if (knowGroupAlready == false) {
       // start tracking this group!
       struct Group *group = &st_groups[st_numGroups++];
       strncpy(group->filename, filename, sizeof(filename));
@@ -346,9 +422,8 @@ void trackerDoWork(int udpsock, int32_t trackerport)
   fprintf(fp, "tPort %d\n", trackerport);
   fclose(fp);
 
-  socklen_t fromlen;
-  struct sockaddr_in addr;
-  fromlen = sizeof(addr);
+  struct sockaddr_in clientaddr;
+  socklen_t fromlen = sizeof(clientaddr);
 
   while (true) {
 
@@ -365,7 +440,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     // n * ( filename(32bytes) type(16bit) )
 
     u_char initBuff[512]; // make this large to make life easy
-    int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&addr, &fromlen);
+    int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&clientaddr, &fromlen);
     if (bytesRecv == -1) {
       perror("ERROR initial manager recv failed");
       exit(1);
@@ -381,7 +456,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     // get the rest of the packet
     int totalBytesRecv = bytesRecv;
     while (totalBytesRecv < pktsize) {
-      bytesRecv = recvfrom(udpsock, (buffer + bytesRecv), sizeof(*buffer), 0, (struct sockaddr*)&addr, &fromlen);
+      bytesRecv = recvfrom(udpsock, (buffer + bytesRecv), sizeof(*buffer), 0, (struct sockaddr*)&clientaddr, &fromlen);
       if (bytesRecv == -1) {
         perror("ERROR additional manager recvfrom failed");
         exit(1);
@@ -392,23 +467,23 @@ void trackerDoWork(int udpsock, int32_t trackerport)
     //
     // Deserialize message from client
     //
-    handleGroupUpdate(buffer, addr);
+    handleGroupUpdateRequest(buffer, clientaddr);
     free(buffer);
-    /*DEBUG*/dumpTrackerClientAddrs();
-    /*DEBUG*/dumpTrackerGroups();
-    /*DEBUG*/dumpRequestedGroups();
+    ///*DEBUG*/dumpTrackerClientAddrs();
+    ///*DEBUG*/dumpTrackerGroups();
+    ///*DEBUG*/dumpRequestedGroups();
 
     //
     // Send client request group information
     //
     int16_t sendPktSize = 0;
     u_char *sendPkt = createGroupAssignPkt(&sendPktSize);
-    printf("Tracker sending pkt of size %d to client\n", sendPktSize);
+    /*DEBUG*/dumpTrackerUpdateMsg(sendPkt);
 
-    int bytesSent = -1;
+    int bytesSent = 0;
     int totalBytesSent = 0;
-    while (bytesSent < totalBytesSent) {
-      if ((bytesSent = sendto(udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&addr, fromlen)) == -1) {
+    while (totalBytesSent < sendPktSize) {
+      if ((bytesSent = sendto(udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&clientaddr, fromlen)) == -1) {
         perror("ERROR (clientDoWork) sendto");
         exit(1);
       }

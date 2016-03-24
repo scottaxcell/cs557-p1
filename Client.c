@@ -17,6 +17,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 // end
+
 /*
 GROUP_SHOW_INTEREST, // client tells tracker about itself
   pktsize, msgtype, client id, number files, filename, file size, type, ...
@@ -25,16 +26,16 @@ GROUP_ASSIGN, // tracker tells client about other clients
   pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
 
 CLNT_INFO_REQ, // client asks other client for file info
-  pktsize, msgtype, filename
+  pktsize, msgtype, client id, filename
 
 CLNT_INFO_REP, // client tells other client about file segments it has
-  pktsize, msgtype, filename, num segments, segment number, ...
+  pktsize, msgtype, client id, filename, num segments, segment number, ...
 
 CLNT_SEG_REQ, // client asks other client for a file segment
-  pktsize, msgtype, filename, segment number
+  pktsize, msgtype, client id, filename, segment number
 
 CLNT_SEG_REP // client sends other client file segment
-  pktsize, msgtype, filename, raw file data
+  pktsize, msgtype, client id, filename, raw file data
 */
 
 // Each forked process gets a copy of these static variables so there is no collision
@@ -54,8 +55,23 @@ static int sc_numClientAddrs = 0;
 static struct Group sc_groups[MAX_FILES];
 static int sc_numGroups = 0;
 
-// TODO dumpClientDownloads()
-// TODO dumpClientOwnedFiles()
+void dumpClientDownloads()
+{
+  printf("Client %d has %ld downloads:\n", s_commInfo.clientid, s_numDownloads);
+  for (int i = 0; i < s_numDownloads; i++) {
+    struct Download *d = &s_downloads[i];
+    printf("  Download %d: %s, filesize %d, numsegments %d\n", i, d->filename, d->filesize, d->numFileSegments);
+  }
+}
+
+void dumpClientOwnedFiles()
+{
+  printf("Client %d: owns %d files\n", s_commInfo.clientid, s_numOwnedFiles);
+  for (int i = 0; i < s_numOwnedFiles; i++) {
+    struct FileInfo *fi = &s_ownedFiles[i];
+    printf("  File %d: %s of size %d with %d segments\n", i, fi->name, fi->size, fi->numsegments);
+  }
+}
 
 void dumpClientCommInfo()
 {
@@ -63,20 +79,22 @@ void dumpClientCommInfo()
   printf("port %d, udpsock %d, pktdelay %d, pktprob %d, trackerport %d\n", s_commInfo.myport, s_commInfo.udpsock, s_commInfo.pktdelay, s_commInfo.pktprob, s_commInfo.trackerport);
 }
 
+
 void dumpClientClientAddrs()
 {
   printf("Client %d has addresses for %d clients:\n", s_commInfo.clientid, sc_numClientAddrs);
   for (int i = 0; i < sc_numClientAddrs; i++) {
     struct ClientAddr *ca = &sc_clientAddrs[i];
-    printf("ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
+    printf("  ClientAddr %d: %s:%d\n", ca->id, ca->ip, ca->port);
   }
 }
 
-void dumpClientGroups(struct Group groups[], int numGroups)
+
+void dumpClientGroups()
 {
-  printf("Client %d knows about %d groups\n", s_commInfo.clientid, numGroups);
-  for (int i = 0; i < numGroups; i++) {
-    struct Group *g = &groups[i];
+  printf("Client %d knows about %d groups\n", s_commInfo.clientid, sc_numGroups);
+  for (int i = 0; i < sc_numGroups; i++) {
+    struct Group *g = &sc_groups[i];
     printf("Group %s:\n", g->filename);
     printf("Sharing Clients: ");
     for (int j = 0; j < MAX_CLIENTS; j++) {
@@ -89,6 +107,7 @@ void dumpClientGroups(struct Group groups[], int numGroups)
     printf("\n");
   }
 }
+
 
 void dumpDeserializedMsg(u_char *pktDontTouch)
 {
@@ -135,11 +154,411 @@ void dumpDeserializedMsg(u_char *pktDontTouch)
 
 }
 
+
 int enableDownload(int i)
 {
-  /*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
+  ///*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
   s_downloadState[i] = true;
   return -1; // negative reurn will remove timer after completion
+}
+
+int16_t getFileSize(char *filename)
+{
+  for (int i = 0; i < sc_numGroups; i++) {
+    struct Group *group = &sc_groups[i];
+    if (strncmp(group->filename, filename, MAX_FILENAME) == 0) {
+      return group->filesize;
+    }
+  }
+  return 0;
+}
+
+int16_t getClientPort(int16_t clientid)
+{
+  for (int i = 0; i < sc_numClientAddrs; i++) {
+    struct ClientAddr *ca = &sc_clientAddrs[i];
+    if (clientid == ca->id) {
+      return ca->port;
+    }
+  }
+  return -1;
+}
+
+int16_t getClientId(uint16_t port)
+{
+  for (int i = 0; i < sc_numClientAddrs; i++) {
+    struct ClientAddr *ca = &sc_clientAddrs[i];
+    if (port == ca->port) {
+      return ca->id;
+    }
+  }
+  return -1;
+}
+
+
+int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
+{
+  // CLNT_INFO_REQ, // client asks other client for file info
+  // pktsize, msgtype, client id, filename
+
+  u_char *pkt = pktDontTouch;
+  
+  // ignore pktsize and msgtype
+  pkt += (2 * sizeof(int16_t));
+
+  int16_t n_cid;
+  memcpy(&n_cid, pkt, sizeof(n_cid));
+  pkt += sizeof(n_cid);
+  int16_t cid = ntohs(n_cid);
+
+  char filename[MAX_FILENAME];
+  memcpy(&filename, pkt, MAX_FILENAME);
+  
+
+  //
+  // Log received CLNT_INFO_REQ message
+  //
+  uint16_t fromPort = ntohs(cliaddr.sin_port);
+  int16_t sendingClientId = getClientId(fromPort);
+  if (sendingClientId == -1) {
+    // update client addrs database
+    struct ClientAddr clientaddr;
+    clientaddr.id = cid;
+    clientaddr.port = fromPort;
+    char *ip = inet_ntoa(cliaddr.sin_addr);
+    memcpy(&clientaddr.ip, ip, MAX_IP);
+    sc_clientAddrs[sc_numClientAddrs++] = clientaddr;
+  }
+
+  FILE *fp;
+  char logfile[20];
+  sprintf(logfile, "%02d.out", s_commInfo.clientid);
+  fp = fopen(logfile, "a");
+  if (fp == NULL) {
+    perror("ERROR opening client log file for append");
+    exit(1);
+  }
+  fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_INFO_REQ\t%s\n", tv.tv_sec, tv.tv_usec, cid, filename);
+  printf("Client %d received CLNT_INFO_REQ from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
+  fclose(fp);
+
+  // Reply with the segment information requested
+  // CLNT_INFO_REP, // client tells other client about file segments it has
+  //  pktsize, msgtype, client id, filename, num segments, segment number, ...
+    
+  int numSegments = 0;
+  for (int i = 0; i < s_numOwnedFiles; i++) {
+    struct FileInfo *fi = &s_ownedFiles[i];
+    if (strncmp(fi->name, filename, MAX_FILENAME) == 0) {
+      numSegments = fi->numsegments;
+      break;
+    }
+  }
+
+  if (numSegments == 0) {
+    printf("Client %d DO NOT HAVE segments for %s\n", s_commInfo.clientid, filename);
+    return -1;
+  }
+
+  printf("HAVE segments for %s\n", filename);
+
+  int16_t sendPktSize = (sizeof(int16_t) * 5) + MAX_FILENAME + (sizeof(int16_t) * numSegments);
+  int16_t n_sendPktSize = htons(sendPktSize);
+  int16_t n_sendMsgtype = htons(1);
+  int16_t n_numSegments = htons(numSegments);
+  int16_t n_sendClientId = htons(s_commInfo.clientid);
+  u_char *sendPktDontTouch = malloc(sendPktSize);
+  u_char *sendPkt = sendPktDontTouch;
+
+  memcpy(sendPkt, &n_sendPktSize, sizeof(n_sendPktSize));
+  sendPkt += sizeof(n_sendPktSize);
+
+  memcpy(sendPkt, &n_sendMsgtype, sizeof(n_sendMsgtype));
+  sendPkt += sizeof(n_sendMsgtype);
+
+  memcpy(sendPkt, &n_sendClientId, sizeof(n_sendClientId));
+  sendPkt += sizeof(n_sendClientId);
+
+  memcpy(sendPkt, &filename, MAX_FILENAME);
+  sendPkt += MAX_FILENAME;
+
+  memcpy(sendPkt, &n_numSegments, sizeof(n_numSegments));
+  sendPkt += sizeof(n_numSegments);
+
+  printf("sending pktsize %d\n", sendPktSize);
+
+  for (int i = 1; i <= numSegments; i++) {
+    int16_t n_segmentNum = htons(i);
+    memcpy(sendPkt, &n_segmentNum, sizeof(n_segmentNum));
+    sendPkt += sizeof(n_segmentNum);
+  }
+
+  struct sockaddr_in si_other;
+  socklen_t slen = sizeof(si_other);
+  memset((char *) &si_other, 0, sizeof(si_other));
+  si_other.sin_family = AF_INET;
+  si_other.sin_port = cliaddr.sin_port;
+
+  int bytesSent = 0, totalBytesSent = 0;
+  while (totalBytesSent < sendPktSize) {
+    if ((bytesSent = sendto(s_commInfo.udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+      perror("ERROR (sed CLNT_INFO_REP) sendto");
+      exit(1);
+    }
+    totalBytesSent += bytesSent;
+  }
+  struct timeval ltv;
+  gettimeofday(&ltv, NULL);
+
+  fp = fopen(logfile, "a");
+  if (fp == NULL) {
+    perror("ERROR opening client log file for append");
+    exit(1);
+  }
+  //fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_INFO_REP\t%s %s", ltv.tv_sec, ltv.tv_usec, cid, filename, logstr);
+  fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_INFO_REP\t%s ", ltv.tv_sec, ltv.tv_usec, cid, filename);
+  for (int i = 1; i <= numSegments; i++) {
+    fprintf(fp, "%d ", i);
+  }
+  fprintf(fp, "\n");
+  printf("Client %d sending CLNT_INFO_REP to client %d for filename %s \n", s_commInfo.clientid, cid, filename );
+  fclose(fp);
+
+  free(sendPktDontTouch);
+
+  return -1;
+}
+
+
+int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
+{
+  // CLNT_INFO_REP, // client tells other client about file segments it has
+  // pktsize, msgtype, client id, filename, num segments, segment number, ...
+
+  u_char *pkt = pktDontTouch;
+  
+  // ignore pktsize and msgtype
+  pkt += (2 * sizeof(int16_t));
+
+  int16_t n_cid;
+  memcpy(&n_cid, pkt, sizeof(n_cid));
+  pkt += sizeof(n_cid);
+  int16_t cid = ntohs(n_cid);
+
+  char filename[MAX_FILENAME];
+  memcpy(&filename, pkt, MAX_FILENAME);
+  
+  int16_t n_numSegments;
+  memcpy(&n_numSegments, pkt, sizeof(n_numSegments));
+  pkt += sizeof(n_numSegments);
+  int16_t numSegments = ntohs(n_numSegments);
+
+  for (int i = 0; i < numSegments; i++) {
+    int16_t n_segment;
+    memcpy(&n_segment, pkt, sizeof(n_segment));
+    pkt += sizeof(n_segment);
+    int16_t segment = ntohs(n_segment);
+  }
+
+  //
+  // Log received CLNT_INFO_REQ message
+  //
+  uint16_t fromPort = ntohs(cliaddr.sin_port);
+  int16_t sendingClientId = getClientId(fromPort);
+  if (sendingClientId == -1) {
+    // update client addrs database
+    struct ClientAddr clientaddr;
+    clientaddr.id = cid;
+    clientaddr.port = fromPort;
+    char *ip = inet_ntoa(cliaddr.sin_addr);
+    memcpy(&clientaddr.ip, ip, MAX_IP);
+    sc_clientAddrs[sc_numClientAddrs++] = clientaddr;
+  }
+
+  FILE *fp;
+  char logfile[20];
+  sprintf(logfile, "%02d.out", s_commInfo.clientid);
+  fp = fopen(logfile, "a");
+  if (fp == NULL) {
+    perror("ERROR opening client log file for append");
+    exit(1);
+  }
+  fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_INFO_REP\t%s\n", tv.tv_sec, tv.tv_usec, cid, filename);
+  printf("Client %d received CLNT_INFO_REP from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
+  fclose(fp);
+
+  // SGA start working here - need to send CLNT_SEG_REQ to client
+  return -1;
+
+ // // Reply with the segment information requested
+ // // CLNT_INFO_REP, // client tells other client about file segments it has
+ // //  pktsize, msgtype, client id, filename, num segments, segment number, ...
+ //   
+ // int numSegments = 0;
+ // for (int i = 0; i < s_numOwnedFiles; i++) {
+ //   struct FileInfo *fi = &s_ownedFiles[i];
+ //   if (strncmp(fi->name, filename, MAX_FILENAME) == 0) {
+ //     numSegments = fi->numsegments;
+ //     break;
+ //   }
+ // }
+
+ // if (numSegments == 0)
+ //   return -1;
+
+ // printf("HAVE segments for %s\n", filename);
+
+ // int16_t sendPktSize = (sizeof(int16_t) * 5) + MAX_FILENAME + (sizeof(int16_t) * numSegments);
+ // int16_t n_sendPktSize = htons(sendPktSize);
+ // int16_t n_sendMsgtype = htons(1);
+ // int16_t n_numSegments = htons(numSegments);
+ // int16_t n_sendClientId = htons(s_commInfo.clientid);
+ // u_char *sendPktDontTouch = malloc(sendPktSize);
+ // u_char *sendPkt = sendPktDontTouch;
+
+ // memcpy(sendPkt, &n_sendPktSize, sizeof(n_sendPktSize));
+ // sendPkt += sizeof(n_sendPktSize);
+
+ // memcpy(sendPkt, &n_sendMsgtype, sizeof(n_sendMsgtype));
+ // sendPkt += sizeof(n_sendMsgtype);
+
+ // memcpy(sendPkt, &n_sendClientId, sizeof(n_sendClientId));
+ // sendPkt += sizeof(n_sendClientId);
+
+ // memcpy(sendPkt, &filename, MAX_FILENAME);
+ // sendPkt += MAX_FILENAME;
+
+ // memcpy(sendPkt, &n_numSegments, sizeof(n_numSegments));
+ // sendPkt += sizeof(n_numSegments);
+
+ // printf("sending pktsize %d\n", sendPktSize);
+ // char logstr[numSegments*2];
+ // for (int i = 1; i <= numSegments; i++) {
+ //   int16_t n_segmentNum = htons(i);
+ //   memcpy(sendPkt, &n_segmentNum, sizeof(n_segmentNum));
+ //   sendPkt += sizeof(n_segmentNum);
+
+ //   // for logging save off filename
+ //   char str[2];
+ //   sprintf(str, "%d", i);
+ //   strcat(logstr, str);
+ //   strcat(logstr, " ");
+ // }
+
+ // struct sockaddr_in si_other;
+ // socklen_t slen = sizeof(si_other);
+ // memset((char *) &si_other, 0, sizeof(si_other));
+ // si_other.sin_family = AF_INET;
+ // si_other.sin_port = cliaddr.sin_port;
+
+ // int bytesSent = 0, totalBytesSent = 0;
+ // while (totalBytesSent < sendPktSize) {
+ //   if ((bytesSent = sendto(s_commInfo.udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+ //     perror("ERROR (sed CLNT_INFO_REP) sendto");
+ //     exit(1);
+ //   }
+ //   totalBytesSent += bytesSent;
+ // }
+ // struct timeval ltv;
+ // gettimeofday(&ltv, NULL);
+
+ // fp = fopen(logfile, "a");
+ // if (fp == NULL) {
+ //   perror("ERROR opening client log file for append");
+ //   exit(1);
+ // }
+ // fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_INFO_REP\t%s %s", ltv.tv_sec, ltv.tv_usec, cid, filename, logstr);
+ // printf("Client %d sending CLNT_INFO_REP to client %d for filename %s \n", s_commInfo.clientid, cid, filename );
+ // fclose(fp);
+
+ // free(sendPktDontTouch);
+ // return -1;
+}
+
+int sendClientInfoRequest()
+{
+  // CLNT_INFO_REQ, // client asks other client for file info
+  // pktsize, msgtype, filename
+
+  if (s_numDownloads == 0)
+    return -1;
+
+  char logstr[(s_numDownloads*MAX_FILENAME) + 56];
+  memset(&logstr, '\0', sizeof(logstr));
+
+  for (int i = 0; i < s_numDownloads; i++) {
+    struct Download *d = &s_downloads[i];
+    if (d->filesize == 0)
+      continue;
+
+    // Figure out who is sharing this file
+    int neighbors[MAX_CLIENTS];
+    memset(&neighbors, 0, sizeof(neighbors));
+    for (int i = 0; i < sc_numGroups; i++) {
+      struct Group *group = &sc_groups[i];
+      if (strncmp(group->filename, d->filename, MAX_FILENAME) == 0) {
+        for (int j = 0; j < MAX_CLIENTS; j++) {
+          if (group->sharingClients[j] == 1) {
+            neighbors[j] = 1;
+          }
+        }
+      }
+    }
+    
+    // send the request to the other clients
+    int16_t pktsize = (sizeof(int16_t) * 3) + MAX_FILENAME;
+    int16_t n_pktsize = htons(pktsize);
+    u_char *pkt = malloc((sizeof(int16_t) * 2) + MAX_FILENAME);
+    memcpy(pkt, &n_pktsize, sizeof(int16_t));
+    int16_t n_msgtype = htons(0); 
+    memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
+    int16_t n_cid = htons(s_commInfo.clientid); 
+    memcpy(pkt+4, &n_cid, sizeof(int16_t));
+    memcpy(pkt+6, &d->filename, MAX_FILENAME);
+  
+    struct sockaddr_in si_other;
+    socklen_t slen = sizeof(si_other);
+
+    for (int j = 0; j < MAX_CLIENTS; j++) {
+      if (neighbors[j] == 0 || j == s_commInfo.clientid) // do not send to myself!
+        continue;
+
+      /*DEBUG*/printf("Client %d sending CLNT_INFO_REQ to client %d: pktsize %d, msgtype %d, filename %s\n", s_commInfo.clientid, j, pktsize, ntohs(n_msgtype), d->filename);
+
+      memset((char *) &si_other, 0, sizeof(si_other));
+      si_other.sin_family = AF_INET;
+      si_other.sin_port = htons(getClientPort(j));
+  
+      int bytesSent = 0, totalBytesSent = 0;
+      while (totalBytesSent < pktsize) {
+        if ((bytesSent = sendto(s_commInfo.udpsock, pkt, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
+          perror("ERROR (sendClientRequest) sendto");
+          exit(1);
+        }
+        totalBytesSent += bytesSent;
+      }
+      
+      //
+      // Log the packet that was just sent to tracker
+      //
+      struct timeval tv;
+      gettimeofday(&tv, NULL);
+  
+      FILE *fp;
+      char filename[20];
+      sprintf(filename, "%02d.out", s_commInfo.clientid);
+      fp = fopen(filename, "a");
+      if (fp == NULL) {
+        perror("ERROR opening client log file for append");
+        exit(1);
+      }
+      fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_INFO_REQ\t%s\n", tv.tv_sec, tv.tv_usec, j, d->filename);
+      fclose(fp);
+    }
+    free(pkt);
+  }
+
+  return -1;
 }
 
 //
@@ -182,14 +601,13 @@ int sendInterestToTracker()
 
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
-    d->filesize = 0;
 
     bool haveFileAlready = false;
 
     // check if we know the file size
     for (int i = 0; i < s_numOwnedFiles; i++) {
       struct FileInfo *fi = &s_ownedFiles[i];
-      if (strcmp(fi->name, d->filename) == 0) {
+      if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
         haveFileAlready = true;
         d->filesize = fi->size;
         break;
@@ -224,8 +642,7 @@ int sendInterestToTracker()
     strcat(logstr, " ");
   }
 
-  /*DEBUG*/
-  dumpDeserializedMsg(pkt0);
+  ///*DEBUG*/dumpDeserializedMsg(pkt0);
 
   struct sockaddr_in si_other;
   socklen_t slen;
@@ -234,8 +651,8 @@ int sendInterestToTracker()
   si_other.sin_family = AF_INET;
   si_other.sin_port = htons(s_commInfo.trackerport); // set tracker port we want to send to
 
-  int bytesSent = -1, totalBytesSent = 0;
-  while (bytesSent < totalBytesSent) {
+  int bytesSent = 0, totalBytesSent = 0;
+  while (totalBytesSent < pktsize) {
     if ((bytesSent = sendto(s_commInfo.udpsock, pkt0, pktsize, 0, (struct sockaddr*)&si_other, slen)) == -1) {
       perror("ERROR (sendInterestToTracker) sendto");
       exit(1);
@@ -441,28 +858,6 @@ void clientDoWork(int clientid, int32_t managerport)
   printf("Client %d wrote log file %s\n", clientid, filename);
   fclose(fp);
 
-  //// send a test message to the tracker
-  //struct sockaddr_in si_other;
-  //int udpsock;
-  //socklen_t slen;
-  //slen = sizeof(si_other);
-  //if ((udpsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-  //  perror("ERROR (clientDoWork) UDP socket creation");
-  //  exit(1);
-  //}
-  //memset((char *) &si_other, 0, sizeof(si_other));
-  //si_other.sin_family = AF_INET;
-  //si_other.sin_port = htons(trackerport); // set tracker port we want to send to
-
-	//memset(&msg, '\0', sizeof(msg));
-  //sprintf(msg, "FROM_CLIENT %d test datagram", clientid);
-  //bytes_sent = 0;
-  //if ((bytes_sent = sendto(udpsock, msg, sizeof(msg), 0, (struct sockaddr*)&si_other, slen)) == -1) {
-  //  perror("ERROR (clientDoWork) sendto");
-  //  exit(1);
-  //}
-  //printf("client %d send %d bytes to tracker\n", clientid, bytes_sent);
-
 
   //
   // Populate datastructure with the current files I own already
@@ -488,15 +883,9 @@ void clientDoWork(int clientid, int32_t managerport)
     fileinfo.numsegments = (filesize / SEGMENT_SIZE) + 1;
     strncpy(fileinfo.name, filename, MAX_FILENAME);
     fileinfo.fp = filecontents;
-    s_ownedFiles[i] = fileinfo;
-    s_numOwnedFiles++;
+    memcpy(&s_ownedFiles[s_numOwnedFiles++], &fileinfo, sizeof(struct FileInfo));
   }
-  ///*DEBUG*/dumpClientOwnedFiles();
-  /*DEBUG*/printf("Client %d: owns %d files\n", client->id, s_numOwnedFiles);
-  /*DEBUG*/for (int i = 0; i < s_numOwnedFiles; i++) {
-  /*DEBUG*/  struct FileInfo *fi = &s_ownedFiles[i];
-  /*DEBUG*/  printf(" File %d: %s of size %lu with %d segments\n", i, fi->name, fi->size, fi->numsegments);
-  /*DEBUG*/}
+  /*DEBUG*/dumpClientOwnedFiles();
 
   //
   // Populate datastructure with s_downloads to complete
@@ -507,24 +896,31 @@ void clientDoWork(int clientid, int32_t managerport)
   for (int i = 0; i < client->numtasks; i++) {
     struct Task *t = (struct Task *)&client->tasks[i];
     struct Download d;
+    memset(&d, 0, sizeof(struct Download));
     d.starttime = t->starttime;
     d.share = t->share;
     d.enabled = false;
-    memcpy(&d.filename, &t->file, MAX_FILENAME);
-    memcpy(&s_downloads[s_numDownloads], &d, sizeof(struct Download));
+    d.filesize = 0;
+    d.numFileSegments = 0;
+    snprintf(d.filename, MAX_FILENAME, "%s", t->file);
+    memset(&d.fileSegments, 0, MAX_SEGMENTS);
+
+    for (int j = 0; j < s_numOwnedFiles; j++) {
+      struct FileInfo *fi = &s_ownedFiles[j];
+      if (strncmp(fi->name, d.filename, strlen(d.filename)) == 0) {
+        d.filesize = fi->size;
+        d.numFileSegments = fi->numsegments;
+        break;
+      }
+    }
+
+    memcpy(&s_downloads[s_numDownloads++], &d, sizeof(struct Download));
 
     int (*fp)();
    	fp = enableDownload;
     Timers_AddTimer(d.starttime, fp, (long*)s_numDownloads);
-    s_numDownloads++;
   }
-  ///*DEBUG*/dumpClientDownloads();
-  /*DEBUG*/printf("Client %d: has %ld downloads\n", s_commInfo.clientid, s_numDownloads);
-  /*DEBUG*/for (int i = 0; i < s_numDownloads; i++) {
-  /*DEBUG*/  struct Download *d = &s_downloads[i];
-  /*DEBUG*/  printf(" Download %d: %s\n", i, d->filename);
-  /*DEBUG*/}
-
+  /*DEBUG*/dumpClientDownloads();
 
 	struct timeval tmv;
 	int status;
@@ -547,6 +943,9 @@ void clientDoWork(int clientid, int32_t managerport)
     fp = sendInterestToTracker;
     Timers_AddTimer(s_commInfo.pktdelay, fp, (int*)1);
 
+    fp = sendClientInfoRequest;
+    Timers_AddTimer(s_commInfo.pktdelay, fp, (int*)1);
+     
 		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
 		status = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &tmv);
@@ -605,17 +1004,21 @@ void clientDoWork(int clientid, int32_t managerport)
 
           if (msgtype == 42) {
             // tracker -> client group update = 42
-            handleTrackerUpdate(pkt, pktsize, tv);
+            handleTrackerGroupUpdate(pkt, pktsize, tv);
+            /*DEBUG*/dumpClientClientAddrs();
+            /*DEBUG*/dumpClientGroups();
+            /*DEBUG*/dumpClientDownloads();
+            
           } else if (msgtype == 0) {
-            // client -> tracker group update = 0
+            // client -> client info req = 0
+            handleClientInfoRequest(pkt, tv, udp_serv_addr);
           } else if (msgtype == 1) {
-            // client -> client info req = 1
+            // client -> client info rep = 1
+            handleClientInfoReply(pkt, tv, udp_serv_addr);
           } else if (msgtype == 2) {
-            // client -> client info res = 2
+            // client -> client seg req = 2
           } else if (msgtype == 3) {
-            // client -> client seg req = 3
-          } else if (msgtype == 4) {
-            // client -> client seg res = 4
+            // client -> client seg rep = 3
           }
           free(pkt);
 			  }
@@ -628,7 +1031,8 @@ void clientDoWork(int clientid, int32_t managerport)
 
 }
 
-void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeval tv)
+
+void handleTrackerGroupUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeval tv)
 {
   // GROUP_ASSIGN, // tracker tells client about other clients
   // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
@@ -658,6 +1062,18 @@ void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeva
     int16_t filesize = ntohs(n_filesize);
     newGroup.filesize = filesize;
 
+    // update download info with the filesize  
+    for (int i = 0; i < s_numDownloads; i++) {
+      struct Download *d = &s_downloads[i];
+      if (strncmp(d->filename, newGroup.filename, MAX_FILENAME) == 0) {
+        if (d->filesize == 0 && newGroup.filesize != 0) {
+          d->filesize = newGroup.filesize;
+          d->numFileSegments = (d->filesize / SEGMENT_SIZE) + 1;
+          memset(&d->fileSegments, 0, MAX_SEGMENTS);
+        }
+        break;
+      }
+    }
 
     int16_t n_numneighbors;
     memcpy(&n_numneighbors, pkt, sizeof(int16_t));
@@ -696,7 +1112,7 @@ void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeva
           break;
         }
       }
-      if (!haveClientAddr) {
+      if (haveClientAddr == false) {
         sc_clientAddrs[sc_numClientAddrs++] = clientaddr;
       }
     }
@@ -707,7 +1123,7 @@ void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeva
     bool knowGroupAlready = false;
     for (int i = 0; i < sc_numGroups; i++) {
       struct Group *group = &sc_groups[i];
-      if (strcmp(group->filename, newGroup.filename) == 0) {
+      if (strncmp(group->filename, newGroup.filename, MAX_FILENAME) == 0) {
         for (int j = 0; j < MAX_CLIENTS; j++) {
           if (newGroup.sharingClients[j] == 1) {
             group->sharingClients[j] = 1;
@@ -720,7 +1136,7 @@ void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeva
         break;
       }
     }
-    if (!knowGroupAlready) {
+    if (knowGroupAlready == false) {
       sc_groups[sc_numGroups++] = newGroup;
     }
 
@@ -748,7 +1164,7 @@ void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeva
       }
     }
   }
-  printf("\n");
+  fprintf(fp, "\n");
   fclose(fp);
 }
 
@@ -759,6 +1175,7 @@ void handleTrackerUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeva
 struct Client* serializeClient(struct Client *client)
 {
   struct Client *s = malloc(sizeof(struct Client));
+  memset(s, 0, sizeof(struct Client));
   s->id = htonl(client->id);
   s->pktdelay = htonl(client->pktdelay);
   s->pktprob = htonl(client->pktprob);
@@ -778,12 +1195,14 @@ struct Client* serializeClient(struct Client *client)
   return s;
 }
 
+
 //
 // Deserialize client received over the network
 //
 struct Client* deserializeClient(struct Client *client)
 {
   struct Client *s = malloc(sizeof(struct Client));
+  memset(s, 0, sizeof(struct Client));
   s->id = ntohl(client->id);
   s->pktdelay = ntohl(client->pktdelay);
   s->pktprob = ntohl(client->pktprob);

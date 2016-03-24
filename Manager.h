@@ -140,6 +140,7 @@ struct Manager* readMgrCfg()
 
       struct Client *client = &(mgr->clients[cid]);
       struct Task task;
+      memset(&task, 0, sizeof(struct Task));
       snprintf(task.file, MAX_FILENAME, "%s", file);
       task.starttime = starttime;
       task.share = share;
