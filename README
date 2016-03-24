@@ -1,11 +1,93 @@
-Assumption in manager.conf:
-A client with a file will also have a task to share that file.
+How to build:
+=============
+$ make all
 
 
-Note: Since all communication is between ports on a single host it appears
-that I don't have to worry about any network to host or host to network
-translation of integers in packet payloads.
+How to run:
+===========
+$ ./proj1
 
+
+Reused code:
+============
+The only code I largely borrowed directly is from the test-app-c.c example
+provided in the timers library. Specifically, the while loop logic for creating
+and firing off timers. A change I made to this code was to remove the logic
+that reminated the while loop if no timers existed. This behavior was not
+desired in my code design.
+
+Besides the timers library I referenced varies websites for snippets of
+code for things I did not know how to accomplish in C. See the References 
+section below for a list of the sites I referenced.
+
+
+Message format:
+===============
+* I added the pktsize to hte beginnin of every message so that the receiver 
+knows how much of the data to read. This way it is getting the full message.
+
+GROUP_SHOW_INTEREST (client -> tracker): client notifies tracker of files it is interested in
+  Fields: pktsize, msgtype, client id, number of files, filename, file size, type, ...
+  * I added the file size so that downloading clients could know how large a file
+  was that they were interested in downloading.
+
+
+GROUP_ASSIGN (tracker -> client): tracker notifies client about other client meta data
+  Fields: pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
+  * I added the file size so that downloading clients could know how large a file
+  was that they were interested in downloading.
+
+
+CLNT_INFO_REQ (client -> client): client queries client for segment information for a file
+  Fields: pktsize, msgtype, client id, filename
+
+
+CLNT_INFO_REP (client -> client): client notifies client of file segments it has to offer for a file
+  Fields: pktsize, msgtype, client id, filename, num segments, segment number, ...
+
+
+CLNT_SEG_REQ (client -> client): client queries client for a specific segment for a file
+  Fields: pktsize, msgtype, client id, filename, segment number
+
+
+CLNT_SEG_REP (client -> client): client sends a raw segment of a file to a client
+  Fields: pktsize, msgtype, client id, filename, segment, size of segment, raw file data
+  * I send the segment size because it may be less than 32 bytes since it
+  may be the last (segment) portion of a file.
+
+
+Idiosyncrasies:
+===============
+I did not implement the packet loss portion of the project for extra credit.
+
+
+Protocol corner cases:
+======================
+
+
+Termination method:
+===================
+
+
+Surprises:
+==========
+In hindsight I should have stuck with a C/C++ implementation. I began with a
+C/C++ implementation, but chose to rewrite the project in the early phase as
+C only. I thought having only C datastructures would make the code easier to
+manage. This turned out to be the wrong way to go. I miss judged how large and
+complicated this project was. C++ would have a been a more solid solution as
+it provides really nice containers and features. C++11 provides a really
+nice API in the standard that allows the developer to not have to 
+fuss with some of the nitty gritty details that need to be addressed in C.
+For example, the vector datastructure would allow me to not have to have a 
+separate variable for every container keeping track of how many elements are
+actually used.
+
+
+
+
+References:
+===========
 Using TCP/UDP sockets - good explanations of functions used
 http://beej.us/guide/bgnet/
 
@@ -24,65 +106,11 @@ htttp://stackoverflow.com/questions/1653681/serialization-deserialization-of-a-s
 Select example
 http://www.gnu.org/software/libc/manual/html_node/Server-Example.html
 
+Writing and reading a file
+http://stackoverflow.com/questions/22129349/reading-binary-file-to-unsigned-char-array-and-write-it-to-another
 
 TODO:
-
-DONE * (client) verify messages being sent are correct
-DONE * (tracker) verify messages from clients are correct
-DONE * (tracker) verify static databases are being updated correctly
-* (client) verify static databases are being updated correctly
-* (tracker) verify messages being sent to clients are correct
-* (client && tracker) add remaining messages once the above is good
-* (tracker) figure out why it is dieing with non-zero exit status
-
+=====
 * (tracker) add a termination timer and static variable
-* (cient) add a termination timer and static variable
 
-* client needs to tell tracker how large a file is so that the tracker
-  can pass that information to clients so they know when they have completed a download
-
-
-
-
-CLIENT:
-/*
- * timer solution
- * create a timer for starttime to wake up client for file downloading
- * int (*fp)();
- * fp = fileTask(); fork to run this.. downloads or shares a file from clients in a loop
- * Timers_AddTimer(task->starttime,fp,(int*)1); figure out what we want to pass instead of the 1
- *
- * create a delay timer for a task
- *
- * while (true) {
- *  if timer goes off {
- *    run timer task: enable task (return -1 to die)
- *    run timer task: send segment to other client (return -1 to die)
- *    run timer task: can we terminate? (return 0 to reset)
- *  }
- *
- *  if files to download {
- *    send interest to tracker
- *    sendTrackerUpdate()
- *  }
- *
- *  s = select()
- *  if (s > 0) { // receive packet
- *    client seg req: create timer for segment response to wait t ms delay (delete timer on completion)
- *      sendClientSegmentReq() this function should start a request timout timer too
- *    client seg res: add segment to file I'm downloading
- *      handleClientSegRes() should reset global variable request timeout reads
- *    client info req: create timer to send segment info to client (t ms delay) (segments I have of file)
- *      sendClientInfoRes()
- *    client info res: update local segment info (client -> segment map)
- *      handleClientInfoRes() should reset requset timout variable
- *    tracker update: update group information we received from tracker
- *      handleTrackerUpdate() should reset requset timout variable
- *  } else if (s == 0) {
- *    timer expired
- *  }
- *
- *
- * }
- */
 

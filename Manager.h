@@ -118,8 +118,12 @@ struct Manager* readMgrCfg()
         continue;
       }
 
+      char filename[MAX_FILENAME];
+      sprintf(filename, "%d-", cid);
+      strncat(filename, file, MAX_FILENAME);
+
       struct Client *client = &(mgr->clients[cid]);
-      snprintf(client->files[client->numfiles], MAX_FILENAME, "%s", file);
+      snprintf(client->files[client->numfiles], MAX_FILENAME, "%s", filename);
       client->numfiles++;
       continue;
     }

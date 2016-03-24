@@ -9,6 +9,7 @@
 
 #include "Utils.h"
 #include "Tracker.h"
+#include "timers-c.h"
 
 // socket sources
 #include <sys/types.h>
@@ -20,6 +21,12 @@
 
 #define TRACKER_FILENAME "tracker.out"
 
+// File Contents:
+// All functions that the tracker process needs to complete it's job of
+// tracking which clients have which files and supplying this information
+// to the client processes.
+
+
 // keep track of files and clients
 static struct ClientAddr st_clientAddrs[MAX_CLIENTS];
 static int st_numClientAddrs = 0;
@@ -29,6 +36,18 @@ static int st_numGroups = 0;
 
 static struct Group st_reqGroups[MAX_FILES];
 static int st_numReqGroups = 0;
+
+static bool st_terminate = false;
+
+int checkIfShouldTerminate()
+{
+  if (st_terminate == true)
+    exit(0);
+
+  st_terminate = true;
+
+  return 0;
+}
 
 
 void dumpTrackerUpdateMsg(u_char *pktDontTouch)
@@ -54,8 +73,6 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
   pkt += 2;
 
   printf("Tracker sending GROUP_ASSIGN: pktsize %d, msgtype %d, numfiles %d\n", pktsize, msgtype, numfiles);
-
-  struct Group newGroups[numfiles];
 
   for (int16_t i = 0; i < numfiles; i++) {
     struct Group newGroup;
@@ -105,11 +122,11 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
   }
 }
 
-void dumpGroupAssignMsg(u_char *pktDontTouch)
-{
-  u_char *pkt = pktDontTouch;
-
-}
+//void dumpGroupAssignMsg(u_char *pktDontTouch)
+//{
+//  u_char *pkt = pktDontTouch;
+//
+//}
 
 void dumpRequestedGroups()
 {
@@ -425,93 +442,139 @@ void trackerDoWork(int udpsock, int32_t trackerport)
   struct sockaddr_in clientaddr;
   socklen_t fromlen = sizeof(clientaddr);
 
-  while (true) {
+	struct timeval tmv;
+	int status;
+  fd_set active_fd_set, read_fd_set;
+  FD_ZERO(&active_fd_set);
+  FD_SET(udpsock, &active_fd_set);
 
-    //
-    // Receive client packet, update client and file databases, send requested
-    // group info to client
-    //
+  int (*funcp)();
+  funcp = checkIfShouldTerminate;
+  Timers_AddTimer(60*30, funcp, (int*)1); // 30 second timer
 
-    // Format of the packets the Tracker will be receiving from clients
-    // pktsize(16bit)
-    // msgtype (16bit)
-    // client_id(16bit)
-    // numfiles(16bit)
-    // n * ( filename(32bytes) type(16bit) )
 
-    u_char initBuff[512]; // make this large to make life easy
-    int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&clientaddr, &fromlen);
-    if (bytesRecv == -1) {
-      perror("ERROR initial manager recv failed");
-      exit(1);
-    }
+  // I've reused the code from test-app-c.c exampled provided by the timers
+  // library in the following while loop.
+  while (1) {
+		Timers_NextTimerTime(&tmv);
+		if (tmv.tv_sec == 0 && tmv.tv_usec == 0) {
+		  /* The timer at the head on the queue has expired  */
+      Timers_ExecuteNextTimer();
+			continue;
+		}
+		if (tmv.tv_sec == MAXVALUE && tmv.tv_usec == 0){
+		  /* There are no timers in the event queue */
+		        break;
+		}
 
-    int16_t n_pktsize = 0;
-    memcpy(&n_pktsize, &initBuff, sizeof(int16_t));
-    int16_t pktsize = ntohs(n_pktsize);
-    printf("Tracker expects full packet to be size of %d\n", pktsize);
-    u_char *buffer = malloc(pktsize);
-    memcpy(buffer, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
+		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
+    read_fd_set = active_fd_set;
+		status = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &tmv);
+		
+		
+		if (status < 0) {
+		  /* This should not happen */
+			fprintf(stderr, "Select returned %d\n", status);
+		} else {
+			if (status == 0) {
+				/* Timer expired, Hence process it  */
+		    Timers_ExecuteNextTimer();
+				/* Execute all timers that have expired.*/
+				Timers_NextTimerTime(&tmv);
+				while(tmv.tv_sec == 0 && tmv.tv_usec == 0){
+				  /* Timer at the head of the queue has expired  */
+		      Timers_ExecuteNextTimer();
+					Timers_NextTimerTime(&tmv);
+				}
+			}
+			if (status > 0) {
+        //
+        // Receive client packet, update client and file databases, send requested
+        // group info to client
+        //
 
-    // get the rest of the packet
-    int totalBytesRecv = bytesRecv;
-    while (totalBytesRecv < pktsize) {
-      bytesRecv = recvfrom(udpsock, (buffer + bytesRecv), sizeof(*buffer), 0, (struct sockaddr*)&clientaddr, &fromlen);
-      if (bytesRecv == -1) {
-        perror("ERROR additional manager recvfrom failed");
-        exit(1);
+        // Format of the packets the Tracker will be receiving from clients
+        // pktsize(16bit)
+        // msgtype (16bit)
+        // client_id(16bit)
+        // numfiles(16bit)
+        // n * ( filename(32bytes) type(16bit) )
+        if (FD_ISSET(udpsock, &read_fd_set)) {
+          st_terminate = false; // reset termination timer since we heard from a client
+
+          u_char initBuff[512]; // make this large to make life easy
+          int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&clientaddr, &fromlen);
+          if (bytesRecv == -1) {
+            perror("ERROR initial manager recv failed");
+            exit(1);
+          }
+
+          int16_t n_pktsize = 0;
+          memcpy(&n_pktsize, &initBuff, sizeof(int16_t));
+          int16_t pktsize = ntohs(n_pktsize);
+          printf("Tracker expects full packet to be size of %d\n", pktsize);
+          u_char *buffer = malloc(pktsize);
+          memcpy(buffer, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
+
+          // get the rest of the packet
+          int totalBytesRecv = bytesRecv;
+          while (totalBytesRecv < pktsize) {
+            bytesRecv = recvfrom(udpsock, (buffer + bytesRecv), sizeof(*buffer), 0, (struct sockaddr*)&clientaddr, &fromlen);
+            if (bytesRecv == -1) {
+              perror("ERROR additional manager recvfrom failed");
+              exit(1);
+            }
+            totalBytesRecv += bytesRecv;
+          }
+
+          //
+          // Deserialize message from client
+          //
+          handleGroupUpdateRequest(buffer, clientaddr);
+          free(buffer);
+          ///*DEBUG*/dumpTrackerClientAddrs();
+          ///*DEBUG*/dumpTrackerGroups();
+          ///*DEBUG*/dumpRequestedGroups();
+
+          //
+          // Send client request group information
+          //
+          int16_t sendPktSize = 0;
+          u_char *sendPkt = createGroupAssignPkt(&sendPktSize);
+          /*DEBUG*/dumpTrackerUpdateMsg(sendPkt);
+
+          int bytesSent = 0;
+          int totalBytesSent = 0;
+          while (totalBytesSent < sendPktSize) {
+            if ((bytesSent = sendto(udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&clientaddr, fromlen)) == -1) {
+              perror("ERROR (clientDoWork) sendto");
+              exit(1);
+            }
+            totalBytesSent += bytesSent;
+          }
+          printf("Tracker sent %d bytes to client\n", totalBytesSent);
+
+          //
+          // Log sent packet
+          //
+          struct timeval tv;
+          gettimeofday(&tv, NULL);
+
+          if ((fp = fopen(TRACKER_FILENAME, "a")) == NULL) {
+            perror("ERROR opening tracker log file");
+            exit(1);
+          }
+          fprintf(fp, "---- ");
+          for (int i = 0; i < sendPktSize; i++) {
+            fprintf(fp, "%02x ", *(sendPkt+i));
+          }
+          fprintf(fp, "\n");
+          fclose(fp);
+          
+          free(sendPkt);
+        }
       }
-      totalBytesRecv += bytesRecv;
-    }
-
-    //
-    // Deserialize message from client
-    //
-    handleGroupUpdateRequest(buffer, clientaddr);
-    free(buffer);
-    ///*DEBUG*/dumpTrackerClientAddrs();
-    ///*DEBUG*/dumpTrackerGroups();
-    ///*DEBUG*/dumpRequestedGroups();
-
-    //
-    // Send client request group information
-    //
-    int16_t sendPktSize = 0;
-    u_char *sendPkt = createGroupAssignPkt(&sendPktSize);
-    /*DEBUG*/dumpTrackerUpdateMsg(sendPkt);
-
-    int bytesSent = 0;
-    int totalBytesSent = 0;
-    while (totalBytesSent < sendPktSize) {
-      if ((bytesSent = sendto(udpsock, sendPkt, sendPktSize, 0, (struct sockaddr*)&clientaddr, fromlen)) == -1) {
-        perror("ERROR (clientDoWork) sendto");
-        exit(1);
-      }
-      totalBytesSent += bytesSent;
-    }
-    printf("Tracker sent %d bytes to client\n", totalBytesSent);
-
-    //
-    // Log sent packet
-    //
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-
-    if ((fp = fopen(TRACKER_FILENAME, "a")) == NULL) {
-      perror("ERROR opening tracker log file");
-      exit(1);
-    }
-    fprintf(fp, "---- ");
-    for (int i = 0; i < sendPktSize; i++) {
-      fprintf(fp, "%02x ", *(sendPkt+i));
-    }
-    fprintf(fp, "\n");
-    fclose(fp);
-    
-    free(sendPkt);
+		}
   }
-
-  // TODO terminate if no messages from clients for 30 seconds
-  
 }
 

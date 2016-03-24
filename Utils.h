@@ -1,5 +1,8 @@
 #ifndef UTILS_H
 #define UTILS_H
+
+#include <arpa/inet.h>
+
 #define MAX_FILENAME 33
 #define MAX_IP 16
 #define MAX_CLIENTS 25

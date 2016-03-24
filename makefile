@@ -4,8 +4,8 @@
 
 CC     = gcc
 CXX    = g++
-CFLAGS = -I. -g -D_GNU_SOURCE -std=c99 -Wall -fno-inline
-CPPFLAGS = -I. -g -Wall -fno-inline
+CFLAGS = -I. -g -D_GNU_SOURCE -std=c99 -Wall -Wno-format -fno-inline
+CPPFLAGS = -I. -g -Wall -Wno-format -fno-inline
 FLAGS  = ${CPPFLAGS}
 
 TIMERSC_LIB_OBJS = timers.o timers-c.o tools.o
@@ -14,10 +14,10 @@ default: all
 
 all: FreeBits
 
-Client.o: Client.c Client.h Utils.h
+Client.o: Client.c Client.h Utils.h timers-c.h
 	$(CC) $(CFLAGS) -c Client.c
 
-Tracker.o: Tracker.c Tracker.h Utils.h
+Tracker.o: Tracker.c Tracker.h Utils.h timers-c.h
 	$(CC) $(CFLAGS) -c Tracker.c
 
 FreeBits.o: FreeBits.c Manager.h Client.h Tracker.h Utils.h

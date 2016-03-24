@@ -17,8 +17,13 @@
 #include <arpa/inet.h>
 // end
 
+// File Contents:
+// This is the so called manager. So has all the logic and functions for 
+// initializing the p2p file sharing simulation.
+
+
 //
-// Declarations
+// Forward declarations
 //
 void sendUDPPortToManager(int32_t managerport, int32_t trackerport, const char *ipaddr);
 void setupTrackerUDPComms(int *udpsock, int *trackerport);
@@ -38,6 +43,7 @@ int main(int argc, const char* argv[])
   // Read the configuration file
   //
   struct Manager *mgr = readMgrCfg();
+  s_reqtimeout = mgr->reqtimeout;
   ///*DEBUG*/for (int i = 0; i < mgr->numclients; i++) {
   ///*DEBUG*/  struct Client *client = &(mgr->clients[i]);
   ///*DEBUG*/  printf("Client %d:\n", client->id);
@@ -249,6 +255,7 @@ int main(int argc, const char* argv[])
   return 0;
 }
 
+
 //
 // Send UDP port to manager via TCP
 //
@@ -288,6 +295,7 @@ void sendUDPPortToManager(int32_t managerport, int32_t trackerport, const char *
   }
 
 }
+
 
 //
 // Setup tracker UDP socket
