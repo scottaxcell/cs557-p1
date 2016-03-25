@@ -145,9 +145,9 @@ void dumpDeserializedMsg(u_char *pktDontTouch)
     memcpy(filename, pkt, MAX_FILENAME);
     pkt += MAX_FILENAME;
 
-    int16_t n_filesize;
-    memcpy(&n_filesize, pkt, sizeof(int16_t));
-    int16_t filesize = ntohs(n_filesize);
+    int32_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(n_filesize));
+    int32_t filesize = ntohs(n_filesize);
     pkt += 2;
 
     int16_t n_type;
@@ -438,6 +438,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
 
 int sendClientSegmentRequest(struct SendData *sd)
 {
+  /*DEBUG*/dumpSegReqMsg(sd->pkt);
   struct sockaddr_in si_other;
   socklen_t slen = sizeof(si_other);
   memset((char *) &si_other, 0, sizeof(si_other));
@@ -461,12 +462,28 @@ int sendClientSegmentRequest(struct SendData *sd)
   struct timeval ltv;
   gettimeofday(&ltv, NULL);
 
-  u_char *p = sd->pkt;
+  u_char *pkt = sd->pkt;
+  //int16_t n_pktsize;
+  //memcpy(&n_pktsize, pkt, sizeof(int16_t));
+  //int16_t pktsize = ntohs(n_pktsize);
+  pkt += 2; 
+
+  //int16_t n_msgtype;
+  //memcpy(&n_msgtype, pkt, sizeof(int16_t));
+  //int16_t msgtype = ntohs(n_msgtype);
+  pkt += 2; 
+
+  int16_t n_id;
+  memcpy(&n_id, pkt, sizeof(int16_t));
+  int16_t id = ntohs(n_id);
+  pkt += 2; 
+
   char filename[MAX_FILENAME];
-  memcpy(&filename, (p+6), MAX_FILENAME);
-  
+  memcpy(filename, pkt, MAX_FILENAME);
+  pkt += MAX_FILENAME;
+
   int16_t n_segment;
-  memcpy(&filename, (p+6+MAX_FILENAME), sizeof(n_segment));
+  memcpy(&n_segment, pkt, sizeof(int16_t));
   int16_t segment = ntohs(n_segment);
 
   FILE *fp;
@@ -477,8 +494,8 @@ int sendClientSegmentRequest(struct SendData *sd)
     perror("ERROR opening client log file for append");
     exit(1);
   }
-  fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_SEG_REQ\t%s %d\n", ltv.tv_sec, ltv.tv_usec, cid, filename, segment);
-  printf("Client %d sending CLNT_SEG_REQ to client %d for filename %s %d\n", s_commInfo.clientid, cid, filename, segment );
+  fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_SEG_REQ\t%s %d\n", ltv.tv_sec, ltv.tv_usec, id, filename, segment);
+  printf("Client %d sending CLNT_SEG_REQ for filename %s %d\n", id, filename, segment );
   fclose(fp);
 
   free(sd->pkt);
@@ -671,7 +688,7 @@ void dumpSegReqMsg(u_char *pktDontTouch)
   memcpy(&n_segment, pkt, sizeof(int16_t));
   int16_t segment = ntohs(n_segment);
 
-  printf("Client %d CLNT_SEG_REQ to client %d = pktsize %d, msgtype %d, filename %s, segment %d\n", s_commInfo.clientid, id, pktsize, msgtype, filename, segment);
+  printf("Client %d CLNT_SEG_REQ = pktsize %d, msgtype %d, filename %s, segment %d\n", id, pktsize, msgtype, filename, segment);
 
 }
 
@@ -1099,7 +1116,7 @@ int sendInterestToTracker()
   memset(&logstr, '\0', sizeof(logstr));
 
   // Serialize message
-  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + (2*sizeof(int16_t))) * numDownloadsThisRound));
+  int16_t pktsize = ((sizeof(int16_t)*4) + ((MAX_FILENAME + sizeof(int16_t) + sizeof(uint32_t)) * numDownloadsThisRound));
   int16_t n_pktsize = htons(pktsize);
 
   int16_t n_msgtype = htons(0); // GROUP_SHOW_INTEREST
@@ -1154,8 +1171,8 @@ int sendInterestToTracker()
     memcpy(pkt, &d->filename, MAX_FILENAME);
     pkt += MAX_FILENAME;
 
-    int16_t n_filesize = htons(d->filesize);
-    memcpy(pkt, &n_filesize, sizeof(int16_t));
+    uint32_t n_filesize = htons(d->filesize);
+    memcpy(pkt, &n_filesize, sizeof(n_filesize));
     pkt += 2;
 
     memcpy(pkt, &n_type, sizeof(int16_t));
@@ -1409,6 +1426,21 @@ void clientDoWork(int clientid, int32_t managerport)
     fread(filecontents, filesize, 1, fp);
     fclose(fp);
 
+    ///*DEBUG*/ write out file immediately, are we even reading it properly?
+    //char newfile[MAX_FILENAME];
+    //sprintf(newfile, "%d-", s_commInfo.clientid);
+    //strncat(newfile, filename, MAX_FILENAME);
+    //printf("Client %d is writing downloaded file %s!\n", s_commInfo.clientid, newfile);
+
+    //fp = fopen(newfile, "wb");
+    //if (fp == NULL) {
+    //  printf("ERROR opening %s for writing", newfile);
+    //  exit(1);
+    //}
+    //fwrite(filecontents, sizeof(u_char), filesize, fp);
+    //fclose(fp);
+    //exit(0);
+
     struct FileInfo fileinfo;
     fileinfo.size = filesize;
     fileinfo.numsegments = (filesize / SEGMENT_SIZE) + 1;
@@ -1502,7 +1534,7 @@ void clientDoWork(int clientid, int32_t managerport)
       continue;
 		}
 
-		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
+		tmv.tv_sec = 0; tmv.tv_usec = 10; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
 		status = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &tmv);
 		
@@ -1611,10 +1643,10 @@ void handleTrackerGroupUpdate(u_char *pktDontTouch, int16_t buffersize, struct t
     memcpy(&newGroup.filename, pkt, MAX_FILENAME);
     pkt += MAX_FILENAME;
 
-    int16_t n_filesize;
-    memcpy(&n_filesize, pkt, sizeof(int16_t));
-    pkt += sizeof(int16_t);
-    int16_t filesize = ntohs(n_filesize);
+    uint32_t n_filesize;
+    memcpy(&n_filesize, pkt, sizeof(n_filesize));
+    pkt += sizeof(n_filesize);
+    uint32_t filesize = ntohs(n_filesize);
     newGroup.filesize = filesize;
 
     // update download info with the filesize  

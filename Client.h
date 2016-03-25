@@ -34,7 +34,7 @@ struct Download {
   int starttime;
   int share;
   int numFileSegments;
-  uint16_t filesize;
+  uint32_t filesize;
   bool enabled;
   bool doneDownloading;
   bool rawFileInit;
@@ -48,7 +48,7 @@ struct Download {
 struct FileInfo
 {
   int numsegments;
-  uint16_t size;
+  uint32_t size;
   char name[MAX_FILENAME];
   int segmentSizes[MAX_SEGMENTS]; // for segment i tells us the the size of the segment, should be MAX_SEGMENTS except for last segment of a file
   unsigned char *fp;

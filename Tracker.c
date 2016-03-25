@@ -84,10 +84,10 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
     memcpy(&newGroup.filename, pkt, MAX_FILENAME);
     pkt += MAX_FILENAME;
 
-    uint16_t n_filesize;
+    uint32_t n_filesize;
     memcpy(&n_filesize, pkt, sizeof(n_filesize));
     pkt += sizeof(n_filesize);
-    uint16_t filesize = ntohs(n_filesize);
+    uint32_t filesize = ntohs(n_filesize);
     newGroup.filesize = filesize;
 
 
@@ -150,7 +150,7 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   int16_t pktsize = (sizeof(int16_t) * 3); // pktsize, msgtype, num files
   //pktsize += ((MAX_FILENAME + (2 * sizeof(int16_t))) * st_numReqGroups); // (filename, file size, num neighbors) * n
   for (int i = 0; i < st_numReqGroups; i++) {
-    pktsize += (MAX_FILENAME + (2 * sizeof(int16_t))); // filename, file size, num neighbors
+    pktsize += (MAX_FILENAME + sizeof(int16_t) + sizeof(uint32_t)); // filename, file size, num neighbors
     struct Group *reqGroup = &st_reqGroups[i];
     for (int j = 0; j < st_numGroups; j++) {
       struct Group *group = &st_groups[j];
@@ -188,7 +188,7 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
     memcpy(pkt, &reqGroup->filename, MAX_FILENAME);
     pkt += MAX_FILENAME;
 
-    uint16_t filesize = 0;
+    uint32_t filesize = 0;
     int16_t numNeighbors = 0;
     struct Group *group = NULL;
     for (int j = 0; j < st_numGroups; j++) {
@@ -203,7 +203,7 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
         break;
       }
     }
-    uint16_t n_filesize = htons(filesize);
+    uint32_t n_filesize = htons(filesize);
     memcpy(pkt, &n_filesize, sizeof(n_filesize));
     pkt += sizeof(n_filesize);
     int16_t n_numNeighbors = htons(numNeighbors);
@@ -308,10 +308,10 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     memcpy(&reqGroup.filename, &filename, MAX_FILENAME);
     st_reqGroups[st_numReqGroups++] = reqGroup;
 
-    uint16_t n_filesize;
+    uint32_t n_filesize;
     memcpy(&n_filesize, pkt, sizeof(n_filesize));
     pkt += sizeof(n_filesize);
-    uint16_t filesize = ntohs(n_filesize);
+    uint32_t filesize = ntohs(n_filesize);
 
     int16_t n_type;
     memcpy(&n_type, pkt, sizeof(int16_t));

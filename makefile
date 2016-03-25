@@ -4,8 +4,10 @@
 
 CC     = gcc
 CXX    = g++
-CFLAGS = -I. -g -D_GNU_SOURCE -std=c99 -Wall -Wno-format -fno-inline
-CPPFLAGS = -I. -g -Wall -Wno-format -fno-inline
+#CFLAGS = -I. -g -D_GNU_SOURCE -std=c99 -Wall -Wno-format -fno-inline
+CFLAGS = -I. -g -D_GNU_SOURCE -std=c99 -Wall -fno-inline
+#CPPFLAGS = -I. -g -Wall -Wno-format -fno-inline
+CPPFLAGS = -I. -g -Wall -fno-inline
 FLAGS  = ${CPPFLAGS}
 
 TIMERSC_LIB_OBJS = timers.o timers-c.o tools.o
