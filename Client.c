@@ -114,10 +114,10 @@ void dumpClientGroups()
 }
 
 
-void dumpDeserializedMsg(u_char *pktDontTouch)
+void dumpDeserializedMsg(unsigned char *pktDontTouch)
 {
   // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
 
   int16_t n_pktsize;
   memcpy(&n_pktsize, pkt, sizeof(int16_t));
@@ -201,13 +201,13 @@ int16_t getClientId(uint16_t port)
 }
 
 
-int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
+int handleClientInfoRequest(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
 {
   // CLNT_INFO_REQ, // client asks other client for file info
   // pktsize, msgtype, client id, filename
   sc_numGroupUpdates = 0; // reset counter so we don't terminate too soon
 
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   
   // ignore pktsize and msgtype
   pkt += (2 * sizeof(int16_t));
@@ -273,8 +273,8 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
   int16_t n_sendMsgtype = htons(1);
   int16_t n_numSegments = htons(numSegments);
   int16_t n_sendClientId = htons(s_commInfo.clientid);
-  u_char *sendPktDontTouch = malloc(sendPktSize);
-  u_char *sendPkt = sendPktDontTouch;
+  unsigned char *sendPktDontTouch = malloc(sendPktSize);
+  unsigned char *sendPkt = sendPktDontTouch;
 
   memcpy(sendPkt, &n_sendPktSize, sizeof(n_sendPktSize));
   sendPkt += sizeof(n_sendPktSize);
@@ -310,13 +310,13 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
 }
 
 
-int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
+int handleClientSegmentRequest(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
 {
   // CLNT_SEG_REQ, // client asks other client for a file segment
   // pktsize, msgtype, client id, filename, segment number
   sc_numGroupUpdates = 0; // reset counter so we don't terminate too soon
 
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   
   // ignore pktsize and msgtype
   pkt += (2 * sizeof(int16_t));
@@ -335,7 +335,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   pkt += sizeof(n_segment);
   int16_t segment = ntohs(n_segment);
 
-  printf("Client %d received CLNT_SEG_REQ from client %d for filename %s %d\n", s_commInfo.clientid, cid, filename, segment);
+  //printf("Client %d received CLNT_SEG_REQ from client %d for filename %s %d\n", s_commInfo.clientid, cid, filename, segment);
 
   //
   // Log received CLNT_SEG_REQ message
@@ -381,7 +381,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   if (haveReqSegment == false)
     return -1;
     
-  u_char rawData[SEGMENT_SIZE];
+  unsigned char rawData[SEGMENT_SIZE];
   int16_t segmentSize = 0;
   for (int i = 0; i < s_numOwnedFiles; i++) {
     struct FileInfo *fi = &s_ownedFiles[i];
@@ -398,8 +398,8 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   int16_t n_sendClientId = htons(s_commInfo.clientid);
   int16_t n_sendSegmentSize = htons(segmentSize);
   int16_t n_sendSegment = htons(segment);
-  u_char *sendPktDontTouch = malloc(sendPktSize);
-  u_char *sendPkt = sendPktDontTouch;
+  unsigned char *sendPktDontTouch = malloc(sendPktSize);
+  unsigned char *sendPkt = sendPktDontTouch;
 
   memcpy(sendPkt, &n_sendPktSize, sizeof(n_sendPktSize));
   sendPkt += sizeof(n_sendPktSize);
@@ -427,7 +427,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   sd->pktsize = sendPktSize;
   sd->cliaddr = cliaddr;
 
-  /*DEBUG*/dumpSegRepMsg(sd->pkt);
+  ///*DEBUG*/dumpSegRepMsg(sd->pkt);
   int (*funcp)();
   funcp = sendClientSegmentReply;
   Timers_AddTimer(s_commInfo.pktdelay, funcp, (struct SendData *)sd);
@@ -438,7 +438,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
 
 int sendClientSegmentRequest(struct SendData *sd)
 {
-  /*DEBUG*/dumpSegReqMsg(sd->pkt);
+  ///*DEBUG*/dumpSegReqMsg(sd->pkt);
   struct sockaddr_in si_other;
   socklen_t slen = sizeof(si_other);
   memset((char *) &si_other, 0, sizeof(si_other));
@@ -462,7 +462,7 @@ int sendClientSegmentRequest(struct SendData *sd)
   struct timeval ltv;
   gettimeofday(&ltv, NULL);
 
-  u_char *pkt = sd->pkt;
+  unsigned char *pkt = sd->pkt;
   //int16_t n_pktsize;
   //memcpy(&n_pktsize, pkt, sizeof(int16_t));
   //int16_t pktsize = ntohs(n_pktsize);
@@ -495,7 +495,7 @@ int sendClientSegmentRequest(struct SendData *sd)
     exit(1);
   }
   fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_SEG_REQ\t%s %d\n", ltv.tv_sec, ltv.tv_usec, id, filename, segment);
-  printf("Client %d sending CLNT_SEG_REQ for filename %s %d\n", id, filename, segment );
+  //printf("Client %d sending CLNT_SEG_REQ for filename %s %d\n", id, filename, segment );
   fclose(fp);
 
   free(sd->pkt);
@@ -518,8 +518,12 @@ void writeDownloadedFile(struct Download *d)
     printf("ERROR opening %s for writing", filename);
     exit(1);
   }
-  fwrite(d->rawFile, sizeof(u_char), d->filesize, fp);
+  fwrite(d->rawFile, sizeof(unsigned char), d->filesize, fp);
   fclose(fp);
+
+  for (int i = 0; i < d->filesize; i++) {
+    
+  }
 }
 
 
@@ -587,7 +591,7 @@ int sendClientSegmentRequests()
           
           // add file to our owned files database
           memcpy(&s_ownedFiles[s_numOwnedFiles++], &fileinfo, sizeof(struct FileInfo));
-        } 
+        }
         continue;
       }
 
@@ -626,8 +630,8 @@ int sendClientSegmentRequests()
         int16_t n_sendMsgtype = htons(2);
         int16_t n_sendClientId = htons(s_commInfo.clientid);
         int16_t n_sendSegment = htons(segmentNum);
-        u_char *sendPktDontTouch = malloc(sendPktSize);
-        u_char *sendPkt = sendPktDontTouch;
+        unsigned char *sendPktDontTouch = malloc(sendPktSize);
+        unsigned char *sendPkt = sendPktDontTouch;
 
         memcpy(sendPkt, &n_sendPktSize, sizeof(n_sendPktSize));
         sendPkt += sizeof(n_sendPktSize);
@@ -649,7 +653,7 @@ int sendClientSegmentRequests()
         sd->pktsize = sendPktSize;
         sd->cliaddr = cliaddr;
 
-        /*DEBUG*/dumpSegReqMsg(sd->pkt);
+        ///*DEBUG*/dumpSegReqMsg(sd->pkt);
         int (*funcp)();
         funcp = sendClientSegmentRequest;
         Timers_AddTimer(s_commInfo.pktdelay, funcp, (struct SendData *)sd);
@@ -662,9 +666,9 @@ int sendClientSegmentRequests()
   return 0;
 }
 
-void dumpSegReqMsg(u_char *pktDontTouch)
+void dumpSegReqMsg(unsigned char *pktDontTouch)
 {
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   int16_t n_pktsize;
   memcpy(&n_pktsize, pkt, sizeof(int16_t));
   int16_t pktsize = ntohs(n_pktsize);
@@ -692,9 +696,9 @@ void dumpSegReqMsg(u_char *pktDontTouch)
 
 }
 
-void dumpSegRepMsg(u_char *pktDontTouch)
+void dumpSegRepMsg(unsigned char *pktDontTouch)
 {
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   int16_t n_pktsize;
   memcpy(&n_pktsize, pkt, sizeof(int16_t));
   int16_t pktsize = ntohs(n_pktsize);
@@ -756,7 +760,7 @@ int sendClientSegmentReply(struct SendData *sd)
     exit(1);
   }
   fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_SEG_REP\t%s\n", ltv.tv_sec, ltv.tv_usec, cid, filename);
-  printf("Client %d sending CLNT_SEG_REP to client %d for filename %s \n", s_commInfo.clientid, cid, filename );
+  //printf("Client %d sending CLNT_SEG_REP to client %d for filename %s \n", s_commInfo.clientid, cid, filename );
   fclose(fp);
 
   free(sd->pkt);
@@ -766,12 +770,12 @@ int sendClientSegmentReply(struct SendData *sd)
 }
 
 
-int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
+int handleClientInfoReply(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
 {
   // CLNT_INFO_REP, // client tells other client about file segments it has
   // pktsize, msgtype, client id, filename, num segments, segment number, ...
 
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   
   // ignore pktsize and msgtype
   pkt += (2 * sizeof(int16_t));
@@ -791,7 +795,7 @@ int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockad
   memcpy(&n_numSegments, pkt, sizeof(n_numSegments));
   pkt += sizeof(n_numSegments);
   int16_t numSegments = ntohs(n_numSegments);
-  u_char *segmentPointer = pkt;
+  unsigned char *segmentPointer = pkt;
 
   //
   // Update download with new meta data
@@ -848,13 +852,13 @@ int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockad
   return -1;
 }
 
-int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
+int handleClientSegmentReply(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr)
 {
   // CLNT_SEG_REP // client sends other client file segment
   // pktsize, msgtype, client id, filename, segment, size of segment raw file data
   sc_numDownloadProgress = 0; // reset download tracker since we got a file segment
 
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   
   // ignore pktsize and msgtype
   pkt += (2 * sizeof(int16_t));
@@ -878,7 +882,7 @@ int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct soc
   pkt += sizeof(n_segmentSize);
   int16_t segmentSize = ntohs(n_segmentSize);
 
-  u_char rawData[segmentSize];
+  unsigned char rawData[segmentSize];
   memcpy(&rawData, pkt, segmentSize);
 
   //
@@ -892,7 +896,8 @@ int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct soc
         d->rawFileInit = true;
         memset(d->rawFile, 0, d->filesize);
       }
-      memcpy((d->rawFile+(segment*SEGMENT_SIZE)), &rawData, segmentSize);
+      //memcpy((d->rawFile+(segment*SEGMENT_SIZE)), &rawData, segmentSize);
+      memcpy((d->rawFile+(segment*SEGMENT_SIZE)), pkt, segmentSize);
       d->haveFileSegments[segment] = 1;
     }
   }
@@ -961,7 +966,7 @@ int sendClientInfoRequests()
     // send the request to the other clients
     int16_t pktsize = (sizeof(int16_t) * 3) + MAX_FILENAME;
     int16_t n_pktsize = htons(pktsize);
-    u_char *pkt = malloc((sizeof(int16_t) * 2) + MAX_FILENAME);
+    unsigned char *pkt = malloc((sizeof(int16_t) * 2) + MAX_FILENAME);
     memcpy(pkt, &n_pktsize, sizeof(int16_t));
     int16_t n_msgtype = htons(0); 
     memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
@@ -1085,12 +1090,12 @@ int sendInterestToTracker()
       }
     }
     if (terminate == true) {
-      /*DEBUG*/printf("Client %d exiting after %d group updates\n", s_commInfo.clientid, sc_numGroupUpdates);
+      /*DEBUG*/printf("Client %d exiting after %d uneventful group updates\n", s_commInfo.clientid, sc_numGroupUpdates);
       exit(0);
     }
   }
   if (sc_numDownloadProgress >= 4) {
-    /*DEBUG*/printf("Client %d exiting after no download progress %d\n", s_commInfo.clientid, sc_numDownloadProgress);
+    /*DEBUG*/printf("Client %d exiting after no download or sharing progress %d\n", s_commInfo.clientid, sc_numDownloadProgress);
     exit(0);
   }
 
@@ -1126,11 +1131,11 @@ int sendInterestToTracker()
   // downloads holds files that I will just be sharing too
   int16_t n_numfiles = htons(numDownloadsThisRound);
 
-  u_char *pkt = malloc(pktsize);
+  unsigned char *pkt = malloc(pktsize);
   memset(pkt, 0, pktsize);
-  u_char *pkt0 = pkt; // keep pointer to beginning so we can free later
+  unsigned char *pkt0 = pkt; // keep pointer to beginning so we can free later
 
-  // fill up u_char for sending!
+  // fill up unsigned char for sending!
   memcpy(pkt, &n_pktsize, sizeof(int16_t));
   memcpy(pkt+2, &n_msgtype, sizeof(int16_t));
   memcpy(pkt+4, &n_cid, sizeof(int16_t));
@@ -1290,8 +1295,8 @@ void clientDoWork(int clientid, int32_t managerport)
   //printf("client sent %d byte msg\n", bytes_sent);
 
   // receive number of files
-  u_char buffer[sizeof(struct Client)];
-  u_char *p_buffer = (u_char *)&buffer;
+  unsigned char buffer[sizeof(struct Client)];
+  unsigned char *p_buffer = (unsigned char *)&buffer;
   bzero(buffer, sizeof(buffer));
   int totalRecv = 0, recv_bytes = 0;
   while (totalRecv < sizeof(struct Client)) {
@@ -1307,7 +1312,7 @@ void clientDoWork(int clientid, int32_t managerport)
   ///*DEBUG*/printf("DBG client TCP received %d bytes\n", recv_bytes);
   ///*DEBUG*/printf("totalRecv = %d\n", totalRecv);
 
-  p_buffer = (u_char *)&buffer;
+  p_buffer = (unsigned char *)&buffer;
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
   s_commInfo.pktdelay = client->pktdelay;
   s_commInfo.pktprob = client->pktprob;
@@ -1327,7 +1332,7 @@ void clientDoWork(int clientid, int32_t managerport)
   ///*DEBUG*/} 
 
   // receive tracker port
-  u_char portmsg[sizeof(int32_t)];
+  unsigned char portmsg[sizeof(int32_t)];
   memset(&portmsg, 0, sizeof(portmsg));
 
   recv_bytes = recv(sockfd, portmsg, sizeof(portmsg), 0);
@@ -1421,7 +1426,7 @@ void clientDoWork(int clientid, int32_t managerport)
     long filesize = ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
-    u_char *filecontents = (u_char*)malloc(filesize);
+    unsigned char *filecontents = (unsigned char*)malloc(filesize);
     memset(filecontents, 0, filesize);
     fread(filecontents, filesize, 1, fp);
     fclose(fp);
@@ -1437,7 +1442,7 @@ void clientDoWork(int clientid, int32_t managerport)
     //  printf("ERROR opening %s for writing", newfile);
     //  exit(1);
     //}
-    //fwrite(filecontents, sizeof(u_char), filesize, fp);
+    //fwrite(filecontents, sizeof(unsigned char), filesize, fp);
     //fclose(fp);
     //exit(0);
 
@@ -1580,7 +1585,7 @@ void clientDoWork(int clientid, int32_t managerport)
 				/* The socket has received data.
 				   Perform packet processing. */
         if (FD_ISSET(udpsock, &read_fd_set)) {
-          u_char initBuff[512]; // make this large to make life easy
+          unsigned char initBuff[512]; // make this large to make life easy
           int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&udp_serv_addr, &serv_addr_size);
           if (bytesRecv == -1) {
             perror("ERROR initial manager recv failed");
@@ -1594,7 +1599,7 @@ void clientDoWork(int clientid, int32_t managerport)
           int16_t n_pktsize = 0;
           memcpy(&n_pktsize, &initBuff, sizeof(int16_t));
           int16_t pktsize = ntohs(n_pktsize);
-          u_char *pkt = malloc(pktsize);
+          unsigned char *pkt = malloc(pktsize);
           memcpy(pkt, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
 
           // get the rest of the packet
@@ -1643,12 +1648,12 @@ void clientDoWork(int clientid, int32_t managerport)
 }
 
 
-void handleTrackerGroupUpdate(u_char *pktDontTouch, int16_t buffersize, struct timeval tv)
+void handleTrackerGroupUpdate(unsigned char *pktDontTouch, int16_t buffersize, struct timeval tv)
 {
   // GROUP_ASSIGN, // tracker tells client about other clients
   // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
 
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
   pkt += 4; // move past pktsize and msgtype
 
   int16_t n_numfiles;

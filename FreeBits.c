@@ -196,7 +196,7 @@ int main(int argc, const char* argv[])
             if (clientid == client->id) {
 
               // sending the entire client struct is somewhat wasteful, but does the job.
-              u_char msg[sizeof(struct Client)];
+              unsigned char msg[sizeof(struct Client)];
               struct Client *sc = (struct Client *)serializeClient((struct Client *)client);
               memcpy(&msg, sc, sizeof(struct Client));
               int bytes_sent = -1, len = sizeof(msg);
@@ -207,7 +207,7 @@ int main(int argc, const char* argv[])
               ///*DEBUG*/printf("sizeof(int) %lu\n", sizeof(int));
 
               // send trackerport
-              u_char portmsg[sizeof(int32_t)];
+              unsigned char portmsg[sizeof(int32_t)];
               int32_t n_trackerport = htonl(trackerport);
               memset(&portmsg, 0, sizeof(int32_t));
               memcpy(&portmsg, &n_trackerport, sizeof(int32_t));

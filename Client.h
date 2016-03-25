@@ -15,7 +15,7 @@
 struct SendData {
   struct sockaddr_in cliaddr;
   int16_t pktsize;
-  u_char *pkt;
+  unsigned char *pkt;
 };
 
 
@@ -38,7 +38,7 @@ struct Download {
   bool enabled;
   bool doneDownloading;
   bool rawFileInit;
-  u_char *rawFile;
+  unsigned char *rawFile;
   char filename[MAX_FILENAME];
   int haveFileSegments[MAX_SEGMENTS]; // for segment i tells us if we have it already or not
   int segmentToClient[MAX_SEGMENTS]; // for a give segment i tells us the client to ask for it
@@ -80,8 +80,8 @@ struct Client
 void clientDoWork(int clientid, int32_t managerport);
 struct Client* serializeClient(struct Client *client);
 struct Client* deserializeClient(struct Client *client);
-void dumpSegReqMsg(u_char *pktDontTouch);
-void dumpSegRepMsg(u_char *pktDontTouch);
+void dumpSegReqMsg(unsigned char *pktDontTouch);
+void dumpSegRepMsg(unsigned char *pktDontTouch);
 
 
 // GROUP_SHOW_INTEREST, // client tells tracker about itself
@@ -90,27 +90,27 @@ int sendInterestToTracker();
 
 // GROUP_ASSIGN, // tracker told client about other client meta data
 //   pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
-void handleTrackerGroupUpdate(u_char *buffer, int16_t buffersize, struct timeval tv);
+void handleTrackerGroupUpdate(unsigned char *buffer, int16_t buffersize, struct timeval tv);
 
 // CLNT_INFO_REQ, // client asks other client for file info
 //   pktsize, msgtype, client id, filename
 int sendClientInfoRequests();
-int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
+int handleClientInfoRequest(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
 
 // CLNT_INFO_REP, // client tells other client about file segments it has
 //   pktsize, msgtype, client id, filename, num segments, segment number, ...
 int sendClientInfoReply(struct SendData *sd);
-int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
+int handleClientInfoReply(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
 
 // CLNT_SEG_REQ, // client asks other client for a file segment
 //   pktsize, msgtype, client id, filename, segment number
 int sendClientSegmentRequests();
 int sendClientSegmentRequest(struct SendData *sd);
-int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
+int handleClientSegmentRequest(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
 
 // CLNT_SEG_REP // client sends other client file segment
 //   pktsize, msgtype, client id, filename, segment, size of segment, raw file data
 int sendClientSegmentReply(struct SendData *sd);
-int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
+int handleClientSegmentReply(unsigned char *pktDontTouch, struct timeval tv, struct sockaddr_in cliaddr);
 
 #endif

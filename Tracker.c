@@ -51,12 +51,12 @@ int checkIfShouldTerminate()
 }
 
 
-void dumpTrackerUpdateMsg(u_char *pktDontTouch)
+void dumpTrackerUpdateMsg(unsigned char *pktDontTouch)
 {
   // GROUP_ASSIGN, // tracker tells client about other clients
   // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
 
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
 
   int16_t n_pktsize;
   memcpy(&n_pktsize, pkt, sizeof(int16_t));
@@ -123,15 +123,15 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
   }
 }
 
-//void dumpGroupAssignMsg(u_char *pktDontTouch)
+//void dumpGroupAssignMsg(unsigned char *pktDontTouch)
 //{
-//  u_char *pkt = pktDontTouch;
+//  unsigned char *pkt = pktDontTouch;
 //
 //}
 
 void dumpRequestedGroups()
 {
-  printf("Tracker has been requested info about %d groups\n", st_numReqGroups);
+  //printf("Tracker has been requested info about %d groups\n", st_numReqGroups);
   for (int i = 0; i < st_numReqGroups; i++) {
     struct Group *g = &st_reqGroups[i];
     printf("Group %s\n", g->filename);
@@ -141,7 +141,7 @@ void dumpRequestedGroups()
 
 
 
-u_char * createGroupAssignPkt(int16_t *returnPktSize)
+unsigned char * createGroupAssignPkt(int16_t *returnPktSize)
 {
   // GROUP_ASSIGN, // tracker tells client about other clients
   // pktsize, msgtype, number files, filename, file size, num neighbors, neigh. id, neigh. ip, neigh port, ...
@@ -170,8 +170,8 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   int16_t n_msgtype = htons(42);
   int16_t n_numfiles = htons(st_numReqGroups);
 
-  u_char *pkt = malloc(pktsize);
-  u_char *returnpkt = pkt;
+  unsigned char *pkt = malloc(pktsize);
+  unsigned char *returnpkt = pkt;
 
   memset(pkt, 0, pktsize); // zero out
 
@@ -237,7 +237,7 @@ u_char * createGroupAssignPkt(int16_t *returnPktSize)
   return returnpkt;
 }
 
-void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
+void handleGroupUpdateRequest(unsigned char *pktDontTouch, struct sockaddr_in cliaddr)
 {
   struct timeval tv;
   gettimeofday(&tv, NULL);
@@ -246,7 +246,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   st_numReqGroups = 0;
 
   // MSG FORMAT = pktsize, msgtype, client id, number files, filename, file size, type, ...
-  u_char *pkt = pktDontTouch;
+  unsigned char *pkt = pktDontTouch;
 
   int16_t n_pktsize;
   memcpy(&n_pktsize, pkt, sizeof(int16_t));
@@ -268,7 +268,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   int16_t numfiles = ntohs(n_numfiles);
   pkt += 2; 
 
-  printf("Tracker received client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
+  //printf("Tracker received client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
 
   //
   // update client address database
@@ -317,7 +317,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     memcpy(&n_type, pkt, sizeof(int16_t));
     int16_t type = ntohs(n_type);
     pkt += 2;
-    printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
+    //printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
 
     // for logging save off filename
     strcat(logstr, filename);
@@ -499,7 +499,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
         if (FD_ISSET(udpsock, &read_fd_set)) {
           st_terminate = false; // reset termination timer since we heard from a client
 
-          u_char initBuff[512]; // make this large to make life easy
+          unsigned char initBuff[512]; // make this large to make life easy
           int bytesRecv = recvfrom(udpsock, initBuff, sizeof(initBuff), 0, (struct sockaddr*)&clientaddr, &fromlen);
           if (bytesRecv == -1) {
             perror("ERROR initial manager recv failed");
@@ -510,7 +510,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
           memcpy(&n_pktsize, &initBuff, sizeof(int16_t));
           int16_t pktsize = ntohs(n_pktsize);
           //printf("Tracker expects full packet to be size of %d\n", pktsize);
-          u_char *buffer = malloc(pktsize);
+          unsigned char *buffer = malloc(pktsize);
           memcpy(buffer, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
 
           // get the rest of the packet
@@ -529,16 +529,16 @@ void trackerDoWork(int udpsock, int32_t trackerport)
           //
           handleGroupUpdateRequest(buffer, clientaddr);
           free(buffer);
-          /*DEBUG*/dumpTrackerClientAddrs();
-          /*DEBUG*/dumpTrackerGroups();
-          /*DEBUG*/dumpRequestedGroups();
+          ///*DEBUG*/dumpTrackerClientAddrs();
+          ///*DEBUG*/dumpTrackerGroups();
+          ///*DEBUG*/dumpRequestedGroups();
 
           //
           // Send client request group information
           //
           int16_t sendPktSize = 0;
-          u_char *sendPkt = createGroupAssignPkt(&sendPktSize);
-          /*DEBUG*/dumpTrackerUpdateMsg(sendPkt);
+          unsigned char *sendPkt = createGroupAssignPkt(&sendPktSize);
+          ///*DEBUG*/dumpTrackerUpdateMsg(sendPkt);
 
           int bytesSent = 0;
           int totalBytesSent = 0;
