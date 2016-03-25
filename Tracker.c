@@ -73,7 +73,7 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
   int16_t numfiles = ntohs(n_numfiles);
   pkt += 2;
 
-  //printf("Tracker sending GROUP_ASSIGN: pktsize %d, msgtype %d, numfiles %d\n", pktsize, msgtype, numfiles);
+  printf("Tracker sending GROUP_ASSIGN: pktsize %d, msgtype %d, numfiles %d\n", pktsize, msgtype, numfiles);
 
   for (int16_t i = 0; i < numfiles; i++) {
     struct Group newGroup;
@@ -96,7 +96,7 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
     pkt += sizeof(int16_t);
     uint16_t numneighbors = ntohs(n_numneighbors);
 
-    //printf("File %d: %s, filesize %u, numneighbors %d: ", i, newGroup.filename, newGroup.filesize, numneighbors);
+    printf("File %d: %s, filesize %u, numneighbors %d: ", i, newGroup.filename, newGroup.filesize, numneighbors);
     for (int i = 0; i < numneighbors; i++) {
       struct ClientAddr clientaddr;
 
@@ -117,9 +117,9 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
       pkt += sizeof(int16_t);
       uint16_t port = ntohs(n_port);
       clientaddr.port = port;
-      //printf("%d %s %d\n", id, ip, port);
+      printf("%d %s %d\n", id, ip, port);
     }
-    //printf("\n");
+    printf("\n");
   }
 }
 
@@ -268,7 +268,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   int16_t numfiles = ntohs(n_numfiles);
   pkt += 2; 
 
-  //printf("Client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
+  printf("Tracker received client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
 
   //
   // update client address database
@@ -317,7 +317,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     memcpy(&n_type, pkt, sizeof(int16_t));
     int16_t type = ntohs(n_type);
     pkt += 2;
-    //printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
+    printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
 
     // for logging save off filename
     strcat(logstr, filename);
@@ -464,7 +464,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
 			continue;
 		}
 
-		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
+		tmv.tv_sec = 0; tmv.tv_usec = 10; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
 		status = select(FD_SETSIZE, &read_fd_set, NULL, NULL, &tmv);
 		
@@ -529,9 +529,9 @@ void trackerDoWork(int udpsock, int32_t trackerport)
           //
           handleGroupUpdateRequest(buffer, clientaddr);
           free(buffer);
-          ///*DEBUG*/dumpTrackerClientAddrs();
-          ///*DEBUG*/dumpTrackerGroups();
-          ///*DEBUG*/dumpRequestedGroups();
+          /*DEBUG*/dumpTrackerClientAddrs();
+          /*DEBUG*/dumpTrackerGroups();
+          /*DEBUG*/dumpRequestedGroups();
 
           //
           // Send client request group information

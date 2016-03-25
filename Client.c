@@ -50,7 +50,7 @@ void dumpClientDownloads()
   printf("Client %d has %ld downloads:\n", s_commInfo.clientid, s_numDownloads);
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
-    printf("  Download %d: %s, filesize %d, numsegments %d\n", i, d->filename, d->filesize, d->numFileSegments);
+    printf("  Download %d: %s, filesize %d, numsegments %d, share %d\n", i, d->filename, d->filesize, d->numFileSegments, d->share);
     printf("  Have file segments: ");
     for (int j = 0; j < d->numFileSegments; j++) {
       printf("%d:%d ",j, d->haveFileSegments[j]);
@@ -148,7 +148,7 @@ void dumpDeserializedMsg(u_char *pktDontTouch)
     int32_t n_filesize;
     memcpy(&n_filesize, pkt, sizeof(n_filesize));
     int32_t filesize = ntohs(n_filesize);
-    pkt += 2;
+    pkt += sizeof(n_filesize);
 
     int16_t n_type;
     memcpy(&n_type, pkt, sizeof(int16_t));
@@ -171,7 +171,7 @@ int16_t getFileSize(char *filename)
 {
   for (int i = 0; i < sc_numGroups; i++) {
     struct Group *group = &sc_groups[i];
-    if (strncmp(group->filename, filename, MAX_FILENAME) == 0) {
+    if (strncmp(group->filename, filename, strlen(group->filename)) == 0) {
       return group->filesize;
     }
   }
@@ -255,7 +255,7 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
   int numSegments = 0;
   for (int i = 0; i < s_numOwnedFiles; i++) {
     struct FileInfo *fi = &s_ownedFiles[i];
-    if (strncmp(fi->name, filename, MAX_FILENAME) == 0) {
+    if (strncmp(fi->name, filename, strlen(fi->name)) == 0) {
       numSegments = fi->numsegments;
       break;
     }
@@ -370,7 +370,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   bool haveReqSegment = false;
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
-    if (strncmp(filename, d->filename, MAX_FILENAME) == 0) {
+    if (strncmp(filename, d->filename, strlen(d->filename)) == 0) {
       if (d->haveFileSegments[segment] == 1) {
         haveReqSegment = true;
       }
@@ -385,7 +385,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   int16_t segmentSize = 0;
   for (int i = 0; i < s_numOwnedFiles; i++) {
     struct FileInfo *fi = &s_ownedFiles[i];
-    if (strncmp(fi->name, filename, MAX_FILENAME) == 0) {
+    if (strncmp(fi->name, filename, strlen(fi->name)) == 0) {
       segmentSize = fi->segmentSizes[segment];
       memcpy(&rawData, fi->fp+(segment*SEGMENT_SIZE), segmentSize);
       break;
@@ -535,7 +535,7 @@ int sendClientSegmentRequests()
       bool haveFileAlready = false;
       for (int i = 0; i < s_numOwnedFiles; i++) {
         struct FileInfo *fi = &s_ownedFiles[i];
-        if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
+        if (strncmp(fi->name, d->filename, strlen(d->filename)) == 0) {
           haveFileAlready = true;
           break;
         }
@@ -551,7 +551,7 @@ int sendClientSegmentRequests()
           numRequiredSegments++;
         }
       }
-      printf("Client %d needs %d segments to complete download of download %s\n", s_commInfo.clientid, numRequiredSegments, d->filename);
+      //printf("Client %d needs %d segments to complete download of download %s\n", s_commInfo.clientid, numRequiredSegments, d->filename);
       if (numRequiredSegments == 0) {
         // done downloading
         d->doneDownloading = true;
@@ -561,7 +561,7 @@ int sendClientSegmentRequests()
         bool haveFileAlready = false;
         for (int i = 0; i < s_numOwnedFiles; i++) {
           struct FileInfo *fi = &s_ownedFiles[i];
-          if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
+          if (strncmp(fi->name, d->filename, strlen(d->filename)) == 0) {
             haveFileAlready = true;
             break;
           }
@@ -798,7 +798,7 @@ int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockad
   //
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
-    if (strncmp(filename, d->filename, MAX_FILENAME) == 0) {
+    if (strncmp(filename, d->filename, strlen(d->filename)) == 0) {
       for (int i = 0; i < numSegments; i++) {
         int16_t n_segment;
         memcpy(&n_segment, pkt, sizeof(n_segment));
@@ -886,7 +886,7 @@ int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct soc
   //
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
-    if (strncmp(d->filename, filename, MAX_FILENAME) == 0) {
+    if (strncmp(d->filename, filename, strlen(d->filename)) == 0) {
       if(d->rawFileInit == false) {
         d->rawFile = malloc(d->filesize);
         d->rawFileInit = true;
@@ -949,7 +949,7 @@ int sendClientInfoRequests()
     memset(&neighbors, 0, sizeof(neighbors));
     for (int i = 0; i < sc_numGroups; i++) {
       struct Group *group = &sc_groups[i];
-      if (strncmp(group->filename, d->filename, MAX_FILENAME) == 0) {
+      if (strncmp(group->filename, d->filename, strlen(d->filename)) == 0) {
         for (int j = 0; j < MAX_CLIENTS; j++) {
           if (group->sharingClients[j] == 1) {
             neighbors[j] = 1;
@@ -1147,7 +1147,7 @@ int sendInterestToTracker()
     // check if we know the file size
     for (int i = 0; i < s_numOwnedFiles; i++) {
       struct FileInfo *fi = &s_ownedFiles[i];
-      if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
+      if (strncmp(fi->name, d->filename, strlen(d->filename)) == 0) {
         haveFileAlready = true;
         d->filesize = fi->size;
         d->doneDownloading = true;
@@ -1173,7 +1173,7 @@ int sendInterestToTracker()
 
     uint32_t n_filesize = htons(d->filesize);
     memcpy(pkt, &n_filesize, sizeof(n_filesize));
-    pkt += 2;
+    pkt += sizeof(uint32_t);
 
     memcpy(pkt, &n_type, sizeof(int16_t));
     pkt += 2;
@@ -1456,6 +1456,16 @@ void clientDoWork(int clientid, int32_t managerport)
     
     // add file to our owned files database
     memcpy(&s_ownedFiles[s_numOwnedFiles++], &fileinfo, sizeof(struct FileInfo));
+
+    // create a group too!
+    struct Group group;
+    memcpy(&group.filename, &fileinfo.name, MAX_FILENAME);
+    for (int j = 0; j < fileinfo.numsegments; j++) {
+      group.downClients[j] = 0;
+      group.sharingClients[j] = 0;
+    }
+    group.filesize = fileinfo.size;
+    memcpy(&sc_groups[sc_numGroups++], &group, sizeof(struct Group));
   }
   ///*DEBUG*/dumpClientOwnedFiles();
 
@@ -1495,11 +1505,24 @@ void clientDoWork(int clientid, int32_t managerport)
 
     memcpy(&s_downloads[s_numDownloads++], &d, sizeof(struct Download));
 
+    for (int j = 0; j < sc_numGroups; j++) {
+      struct Group *g = &sc_groups[j];
+      if (strncmp(g->filename, d.filename, strlen(d.filename)) == 0) {
+        g->sharingClients[s_commInfo.clientid] = d.share;
+        break;
+      }
+    }
+
     //int (*fp)();
    	//fp = enableDownload;
     //Timers_AddTimer(d.starttime, fp, (long*)(s_numDownloads-1));
   }
   ///*DEBUG*/dumpClientDownloads();
+
+  if (s_numDownloads == 0) {
+    printf("Client %d exiting - no downloads or owned files to share\n", s_commInfo.clientid);
+    exit(0);
+  }
 
 	struct timeval tmv;
 	int status;
@@ -1595,6 +1618,7 @@ void clientDoWork(int clientid, int32_t managerport)
             handleTrackerGroupUpdate(pkt, pktsize, tv);
             /*DEBUG*/dumpClientClientAddrs();
             /*DEBUG*/dumpClientGroups();
+            /*DEBUG*/dumpClientOwnedFiles();
             /*DEBUG*/dumpClientDownloads();
             printf("\n\n");
             
@@ -1652,7 +1676,7 @@ void handleTrackerGroupUpdate(u_char *pktDontTouch, int16_t buffersize, struct t
     // update download info with the filesize  
     for (int i = 0; i < s_numDownloads; i++) {
       struct Download *d = &s_downloads[i];
-      if (strncmp(d->filename, newGroup.filename, MAX_FILENAME) == 0) {
+      if (strncmp(d->filename, newGroup.filename, strlen(d->filename)) == 0) {
         if (d->filesize == 0 && newGroup.filesize != 0) {
           d->filesize = newGroup.filesize;
           d->numFileSegments = (d->filesize / SEGMENT_SIZE) + 1;
@@ -1715,7 +1739,7 @@ void handleTrackerGroupUpdate(u_char *pktDontTouch, int16_t buffersize, struct t
     bool knowGroupAlready = false;
     for (int i = 0; i < sc_numGroups; i++) {
       struct Group *group = &sc_groups[i];
-      if (strncmp(group->filename, newGroup.filename, MAX_FILENAME) == 0) {
+      if (strncmp(group->filename, newGroup.filename, strlen(group->filename)) == 0) {
         for (int j = 0; j < MAX_CLIENTS; j++) {
           if (newGroup.sharingClients[j] == 1) {
             group->sharingClients[j] = 1;
