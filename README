@@ -13,8 +13,8 @@ Reused code:
 The only code I largely borrowed directly is from the test-app-c.c example
 provided in the timers library. Specifically, the while loop logic for creating
 and firing off timers. A change I made to this code was to remove the logic
-that reminated the while loop if no timers existed. This behavior was not
-desired in my code design.
+that terminated the while loop if no timers existed. This behavior was not
+desired in my design.
 
 Besides the timers library I referenced varies websites for snippets of
 code for things I did not know how to accomplish in C. See the References 
@@ -58,15 +58,63 @@ CLNT_SEG_REP (client -> client): client sends a raw segment of a file to a clien
 
 Idiosyncrasies:
 ===============
-I did not implement the packet loss portion of the project for extra credit.
+Phase 1: Program correctly creates a process for the tracker and clients. All
+configuration information is sent from the manager to them successfully.
+
+Phase 2: A single client correctly downloads a file from another client. The
+downloaded file appears to be corrupted and I'm not sure why. I have used this
+method (using unsigned chars) of sending files over the network before and
+ have not had issue. Unfortunately, I did not have time to resolve this.
+
+Phase 3: A number of clients correctly download a single file from each other. Again
+the files are corrupted, but the sizes are correct.
+
+Phase 4: I have not managed to get this working at this point.
+
+Phase 5: I did not implement the packet loss portion of the project for extra credit.
 
 
 Protocol corner cases:
 ======================
+1. One to one transfer:
+If the sharing client starts significantly earlier than the downloading client
+there is the possibility it may terminate before ever receiving requests
+from the downloading client.
+
+2. Many to many transfer:
+If many clients are attempting to download and only a single client shares
+then there is concern that downloads will quite a bit of time. Since a single
+client is servicing the rest of the clients there is potential for the sharing
+client's buffers to become congested and start dropping tails. Since we're using
+a UDP protocol, this will just extend the time that it takes to download a file.
+This phenomenon where clients download a file and do not do their due diligence
+to share it with others is called leeching.
+
+3. Transfer with multiple files:
+Clients downloading multiple files must be sure to track which file the 
+received segment belongs too. Otherwise there is potential for writing the
+wrong segments to the wrong files.
+
+4. Transfer with loss:
+If there is a substantial amount of loss then it can clients to terminate early.
+This will also extend the length of time it takes to download a file.
 
 
 Termination method:
 ===================
+I chose to use the suggested termination algorithms provided. I tested a number of 
+different scenarios and termination algorithms and I found the suggested 
+algorithms to be most natural. I chose to keep the manager alive while the 
+child processes (clients and tracker) were alive. This helps prevent zombie processes
+on a machine.
+
+Manager: Waits for all child processes to exit before exiting.
+
+Client: If downloading tasks are complete and there is no request from other clients
+for 2 rounds of group update, it terminates. It terminates if it is unable to
+make progress on downloading after 4 rounds of group update too.
+
+Tracker: If there are no requests from clients for 30 seconds it terminates.
 
 
 Surprises:
@@ -81,9 +129,15 @@ nice API in the standard that allows the developer to not have to
 fuss with some of the nitty gritty details that need to be addressed in C.
 For example, the vector datastructure would allow me to not have to have a 
 separate variable for every container keeping track of how many elements are
-actually used.
+actually used. This was a very interesting project so I think I will 
+rewrite it using C++ for my own enjoyment and so that I can get everything
+working fully.
 
-
+Additionally, I was surprised that serilization needed to be done to
+numbers in messages even though all the messages were being sent back
+and forth to ports on the same machine. I was under the impression
+serializatio was done to rectify big endian differences on different
+machines, but that doesn't seem to be the only reason.
 
 
 References:
@@ -108,9 +162,4 @@ http://www.gnu.org/software/libc/manual/html_node/Server-Example.html
 
 Writing and reading a file
 http://stackoverflow.com/questions/22129349/reading-binary-file-to-unsigned-char-array-and-write-it-to-another
-
-TODO:
-=====
-* (tracker) add a termination timer and static variable
-
 

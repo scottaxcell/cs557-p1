@@ -160,10 +160,10 @@ void dumpDeserializedMsg(unsigned char *pktDontTouch)
 }
 
 
-int enableDownload(int i)
+int enableDownload(struct Download *d)
 {
-  /*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
-  s_downloads[i].enabled = true;
+  ///*DEBUG*/printf("Fired enableDownload(int i) timer for download i = %d\n", i);
+  d->enabled = true;
   return -1; // negative reurn will remove timer after completion
 }
 
@@ -382,6 +382,7 @@ int handleClientSegmentRequest(unsigned char *pktDontTouch, struct timeval tv, s
     return -1;
     
   unsigned char rawData[SEGMENT_SIZE];
+  memset(&rawData, 0, sizeof(rawData));
   int16_t segmentSize = 0;
   for (int i = 0; i < s_numOwnedFiles; i++) {
     struct FileInfo *fi = &s_ownedFiles[i];
@@ -882,8 +883,8 @@ int handleClientSegmentReply(unsigned char *pktDontTouch, struct timeval tv, str
   pkt += sizeof(n_segmentSize);
   int16_t segmentSize = ntohs(n_segmentSize);
 
-  unsigned char rawData[segmentSize];
-  memcpy(&rawData, pkt, segmentSize);
+  //unsigned char rawData[segmentSize];
+  //memcpy(&rawData, pkt, segmentSize);
 
   //
   // Update download status
@@ -939,7 +940,7 @@ int sendClientInfoRequests()
   // pktsize, msgtype, filename
 
   if (s_numDownloads == 0)
-    return -1;
+    return 0;
 
   char logstr[(s_numDownloads*MAX_FILENAME) + 56];
   memset(&logstr, '\0', sizeof(logstr));
@@ -1107,7 +1108,7 @@ int sendInterestToTracker()
   sc_numDownloadProgress++;
 
   if (s_numDownloads == 0)
-    return -1;
+    return 0;
 
   // figure out who is enabled to send an update this round
   int numDownloadsThisRound = 0;
@@ -1116,6 +1117,9 @@ int sendInterestToTracker()
     if (d->enabled == true)
       numDownloadsThisRound++;
   }
+
+  if (numDownloadsThisRound == 0)
+    return 0;
 
   char logstr[(numDownloadsThisRound*MAX_FILENAME) + 56];
   memset(&logstr, '\0', sizeof(logstr));
@@ -1483,7 +1487,7 @@ void clientDoWork(int clientid, int32_t managerport)
     memset(&d, 0, sizeof(struct Download));
     d.starttime = t->starttime;
     d.share = t->share;
-    d.enabled = true; // TODO make this false
+    d.enabled = false;
     d.filesize = 0;
     d.numFileSegments = 0;
     d.rawFileInit = false;
@@ -1508,7 +1512,7 @@ void clientDoWork(int clientid, int32_t managerport)
       }
     }
 
-    memcpy(&s_downloads[s_numDownloads++], &d, sizeof(struct Download));
+    memcpy(&s_downloads[s_numDownloads], &d, sizeof(struct Download));
 
     for (int j = 0; j < sc_numGroups; j++) {
       struct Group *g = &sc_groups[j];
@@ -1518,9 +1522,10 @@ void clientDoWork(int clientid, int32_t managerport)
       }
     }
 
-    //int (*fp)();
-   	//fp = enableDownload;
-    //Timers_AddTimer(d.starttime, fp, (long*)(s_numDownloads-1));
+    int (*funcp)();
+   	funcp = enableDownload;
+    Timers_AddTimer(d.starttime, funcp, (struct Download *)&s_downloads[s_numDownloads]);
+    s_numDownloads++;
   }
   ///*DEBUG*/dumpClientDownloads();
 
