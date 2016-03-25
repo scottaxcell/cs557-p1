@@ -8,10 +8,7 @@
 #define MAX_FILES 25
 #define MAX_CLIENTS 25
 #define SEGMENT_SIZE 32
-#define MAX_SEGMENTS 1024
-
-// request timeout to be used by client processes
-static int s_reqtimeout;
+#define MAX_SEGMENTS 10240
 
 
 // Packet and meta data for sending a packet
@@ -29,6 +26,7 @@ struct CommInfo {
   int udpsock;
   int pktdelay;
   int pktprob;
+  int reqtimeout;
 };
   
 
@@ -71,6 +69,7 @@ struct Client
   int id;
   int pktdelay; // delay (msec) - amount of time to wait before replying to another client with a segment
   int pktprob;  // drop probabilty
+  int reqtimeout;  // drop probabilty
   int numfiles; // files the client owns 
   int numtasks;
   char files[MAX_FILES][MAX_FILENAME];
@@ -81,6 +80,8 @@ struct Client
 void clientDoWork(int clientid, int32_t managerport);
 struct Client* serializeClient(struct Client *client);
 struct Client* deserializeClient(struct Client *client);
+void dumpSegReqMsg(u_char *pktDontTouch);
+void dumpSegRepMsg(u_char *pktDontTouch);
 
 
 // GROUP_SHOW_INTEREST, // client tells tracker about itself

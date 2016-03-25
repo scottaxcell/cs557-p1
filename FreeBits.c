@@ -43,7 +43,6 @@ int main(int argc, const char* argv[])
   // Read the configuration file
   //
   struct Manager *mgr = readMgrCfg();
-  s_reqtimeout = mgr->reqtimeout;
   ///*DEBUG*/for (int i = 0; i < mgr->numclients; i++) {
   ///*DEBUG*/  struct Client *client = &(mgr->clients[i]);
   ///*DEBUG*/  printf("Client %d:\n", client->id);

@@ -100,6 +100,7 @@ struct Manager* readMgrCfg()
       client.id = cid;
       client.pktdelay = delay;
       client.pktprob = prob;
+      client.reqtimeout = mgr->reqtimeout;
       client.numfiles = 0;
       client.numtasks = 0;
       mgr->clients[cid] = client;
@@ -118,12 +119,13 @@ struct Manager* readMgrCfg()
         continue;
       }
 
-      char filename[MAX_FILENAME];
-      sprintf(filename, "%d-", cid);
-      strncat(filename, file, MAX_FILENAME);
+      //char filename[MAX_FILENAME];
+      //sprintf(filename, "%d-", cid);
+      //strncat(filename, file, MAX_FILENAME);
+      ///*DEBUG*/printf("read \"%d %s\"\n", cid, filename);
 
       struct Client *client = &(mgr->clients[cid]);
-      snprintf(client->files[client->numfiles], MAX_FILENAME, "%s", filename);
+      snprintf(client->files[client->numfiles], MAX_FILENAME, "%s", file);
       client->numfiles++;
       continue;
     }
@@ -142,6 +144,11 @@ struct Manager* readMgrCfg()
         continue;
       }
 
+      //char filename[MAX_FILENAME];
+      //sprintf(filename, "%d-", cid);
+      //strncat(filename, file, MAX_FILENAME);
+      ///*DEBUG*/printf("read \"%d %s\"\n", cid, filename);
+
       struct Client *client = &(mgr->clients[cid]);
       struct Task task;
       memset(&task, 0, sizeof(struct Task));
@@ -153,9 +160,10 @@ struct Manager* readMgrCfg()
       continue;
     }
 
-    // TODO read in rest of configurations
-    if (readDownloadTasks)
+    if (readDownloadTasks) {
+      fclose(fp);
       return mgr;
+    }
   }
   
   return mgr;

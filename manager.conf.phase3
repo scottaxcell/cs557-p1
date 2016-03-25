@@ -19,17 +19,17 @@
 
 # Specify which node will have which files initially, empty for phase 1
 #NODE ID    Filename
-4           proj1.pdf
-3           proj1.pdf
+4           csu_cs557_foo.txt
+3           csu_cs557_foo.txt
 -1          ---
 
 # Specify the download tasks, empty for phase 1
 #NODE ID    Filename    StartTime    Share
-1           proj1.pdf             5           1
-4           proj1.pdf             10           0
-3           proj1.pdf             20           1
-2           proj1.pdf             15           1
-0           proj1.pdf             7           0
+1           csu_cs557_foo.txt             5           1
+4           csu_cs557_foo.txt             10           0
+3           csu_cs557_foo.txt             20           1
+2           csu_cs557_foo.txt             15           1
+0           csu_cs557_foo.txt             7           0
 -1          ---                           -1          -1
 
 ##Comments should not be present in the actual output file

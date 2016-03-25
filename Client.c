@@ -53,12 +53,12 @@ void dumpClientDownloads()
     printf("  Download %d: %s, filesize %d, numsegments %d\n", i, d->filename, d->filesize, d->numFileSegments);
     printf("  Have file segments: ");
     for (int j = 0; j < d->numFileSegments; j++) {
-      printf("%d:%d",j, d->haveFileSegments[j]);
+      printf("%d:%d ",j, d->haveFileSegments[j]);
     }
     printf("\n");
     printf("  Segment to client: ");
     for (int j = 0; j < d->numFileSegments; j++) {
-      printf("%d:%d",j, d->segmentToClient[j]);
+      printf("%d:%d ",j, d->segmentToClient[j]);
     }
     printf("\n");
   }
@@ -220,6 +220,7 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
   char filename[MAX_FILENAME];
   memcpy(&filename, pkt, MAX_FILENAME);
   
+  //printf("Client %d received CLNT_INFO_REQ from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
 
   //
   // Log received CLNT_INFO_REQ message
@@ -245,7 +246,6 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
     exit(1);
   }
   fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_INFO_REQ\t%s\n", tv.tv_sec, tv.tv_usec, cid, filename);
-  printf("Client %d received CLNT_INFO_REQ from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
   fclose(fp);
 
   // Reply with the segment information requested
@@ -262,11 +262,11 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
   }
 
   if (numSegments == 0) {
-    /*DEBUG*/printf("Client %d DOES NOT HAVE segments for %s\n", s_commInfo.clientid, filename);
+    ///*DEBUG*/printf("Client %d DOES NOT HAVE segments for %s\n", s_commInfo.clientid, filename);
     return -1;
   }
 
-  /*DEBUG*/printf("Client %d HAS segments for %s\n", s_commInfo.clientid, filename);
+  ///*DEBUG*/printf("Client %d HAS segments for %s\n", s_commInfo.clientid, filename);
 
   int16_t sendPktSize = (sizeof(int16_t) * 5) + MAX_FILENAME + (sizeof(int16_t) * numSegments);
   int16_t n_sendPktSize = htons(sendPktSize);
@@ -291,7 +291,7 @@ int handleClientInfoRequest(u_char *pktDontTouch, struct timeval tv, struct sock
   memcpy(sendPkt, &n_numSegments, sizeof(n_numSegments));
   sendPkt += sizeof(n_numSegments);
 
-  for (int i = 1; i <= numSegments; i++) {
+  for (int i = 0; i < numSegments; i++) {
     int16_t n_segmentNum = htons(i);
     memcpy(sendPkt, &n_segmentNum, sizeof(n_segmentNum));
     sendPkt += sizeof(n_segmentNum);
@@ -328,11 +328,14 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
 
   char filename[MAX_FILENAME];
   memcpy(&filename, pkt, MAX_FILENAME);
-  
+  pkt += MAX_FILENAME;
+
   int16_t n_segment;
   memcpy(&n_segment, pkt, sizeof(n_segment));
   pkt += sizeof(n_segment);
   int16_t segment = ntohs(n_segment);
+
+  printf("Client %d received CLNT_SEG_REQ from client %d for filename %s %d\n", s_commInfo.clientid, cid, filename, segment);
 
   //
   // Log received CLNT_SEG_REQ message
@@ -358,7 +361,6 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
     exit(1);
   }
   fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_SEG_REQ\t%s\n", tv.tv_sec, tv.tv_usec, cid, filename);
-  printf("Client %d received CLNT_SEG_REQ from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
   fclose(fp);
 
   // Reply with the segment information requested
@@ -425,6 +427,7 @@ int handleClientSegmentRequest(u_char *pktDontTouch, struct timeval tv, struct s
   sd->pktsize = sendPktSize;
   sd->cliaddr = cliaddr;
 
+  /*DEBUG*/dumpSegRepMsg(sd->pkt);
   int (*funcp)();
   funcp = sendClientSegmentReply;
   Timers_AddTimer(s_commInfo.pktdelay, funcp, (struct SendData *)sd);
@@ -442,6 +445,10 @@ int sendClientSegmentRequest(struct SendData *sd)
   si_other.sin_port = sd->cliaddr.sin_port;
   uint16_t fromPort = ntohs(sd->cliaddr.sin_port);
   int16_t cid = getClientId(fromPort);
+  if (cid == -1) {
+    // don't know client address yet
+
+  }
 
   int bytesSent = 0, totalBytesSent = 0;
   while (totalBytesSent < sd->pktsize) {
@@ -454,8 +461,13 @@ int sendClientSegmentRequest(struct SendData *sd)
   struct timeval ltv;
   gettimeofday(&ltv, NULL);
 
+  u_char *p = sd->pkt;
   char filename[MAX_FILENAME];
-  memcpy(&filename, sd->pkt+6, MAX_FILENAME);
+  memcpy(&filename, (p+6), MAX_FILENAME);
+  
+  int16_t n_segment;
+  memcpy(&filename, (p+6+MAX_FILENAME), sizeof(n_segment));
+  int16_t segment = ntohs(n_segment);
 
   FILE *fp;
   char logfile[20];
@@ -465,8 +477,8 @@ int sendClientSegmentRequest(struct SendData *sd)
     perror("ERROR opening client log file for append");
     exit(1);
   }
-  fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_SEG_REQ\t%s\n", ltv.tv_sec, ltv.tv_usec, cid, filename);
-  printf("Client %d sending CLNT_SEG_REQ to client %d for filename %s \n", s_commInfo.clientid, cid, filename );
+  fprintf(fp, "%lu.%d\tTo\t%d\tCLNT_SEG_REQ\t%s %d\n", ltv.tv_sec, ltv.tv_usec, cid, filename, segment);
+  printf("Client %d sending CLNT_SEG_REQ to client %d for filename %s %d\n", s_commInfo.clientid, cid, filename, segment );
   fclose(fp);
 
   free(sd->pkt);
@@ -481,26 +493,40 @@ void writeDownloadedFile(struct Download *d)
   FILE *fp;
   char filename[MAX_FILENAME];
   sprintf(filename, "%d-", s_commInfo.clientid);
-  strncat(filename, &d->filename[2], MAX_FILENAME); // skip original client id and dash
+  strncat(filename, d->filename, MAX_FILENAME); // skip original client id and dash
+  printf("Client %d is writing downloaded file %s!\n", s_commInfo.clientid, filename);
 
   fp = fopen(filename, "wb");
   if (fp == NULL) {
     printf("ERROR opening %s for writing", filename);
     exit(1);
   }
-  int bytes_written = fwrite(d->rawFile, sizeof(u_char), d->filesize, fp);
+  fwrite(d->rawFile, sizeof(u_char), d->filesize, fp);
   fclose(fp);
 }
 
 
 int sendClientSegmentRequests()
 {
+  //printf("Client %d fired off sendClientSegmentRequests\n", s_commInfo.clientid);
   // if not done downloading - randomly select 8 segments don't have to download
   // and send a request to the associated clients
   // start 
   for (int i = 0; i < s_numDownloads; i++) {
     struct Download *d = &s_downloads[i];
     if (d->doneDownloading == false) {
+      bool haveFileAlready = false;
+      for (int i = 0; i < s_numOwnedFiles; i++) {
+        struct FileInfo *fi = &s_ownedFiles[i];
+        if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
+          haveFileAlready = true;
+          break;
+        }
+      }
+      if (haveFileAlready == true || d->numFileSegments == 0)
+        continue;
+
+      //printf("Client %d prepping to get segments for download %s\n", s_commInfo.clientid, d->filename);
       // figure out 8 random segments I still need to complete the  download
       int numRequiredSegments = 0;
       for (int j = 0; j < d->numFileSegments; j++) {
@@ -508,28 +534,43 @@ int sendClientSegmentRequests()
           numRequiredSegments++;
         }
       }
+      printf("Client %d needs %d segments to complete download of download %s\n", s_commInfo.clientid, numRequiredSegments, d->filename);
       if (numRequiredSegments == 0) {
         // done downloading
         d->doneDownloading = true;
 
-        // write out the file to disk
-        writeDownloadedFile(d);
-
-        // copy file over to owned files container
-        struct FileInfo fileinfo;
-        fileinfo.size = d->filesize;
-        fileinfo.numsegments = d->numFileSegments;
-        strncpy(fileinfo.name, d->filename, MAX_FILENAME);
-        fileinfo.fp = d->rawFile;
-        memset(&fileinfo.segmentSizes, SEGMENT_SIZE, MAX_SEGMENTS);
-
-        // figure out last segment size and set it
-        int16_t lastSize = fileinfo.size - (SEGMENT_SIZE - fileinfo.numsegments);
-        memset(&fileinfo.segmentSizes[fileinfo.numsegments-1], lastSize, sizeof(lastSize));
         
-        // add file to our owned files database
-        memcpy(&s_ownedFiles[s_numOwnedFiles++], &fileinfo, sizeof(struct FileInfo));
-
+        // if we aren't the owner of the file already, write it out!
+        bool haveFileAlready = false;
+        for (int i = 0; i < s_numOwnedFiles; i++) {
+          struct FileInfo *fi = &s_ownedFiles[i];
+          if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
+            haveFileAlready = true;
+            break;
+          }
+        }
+        if (haveFileAlready == false) {
+          // write out the file to disk
+          writeDownloadedFile(d);
+  
+          // copy file over to owned files container
+          struct FileInfo fileinfo;
+          fileinfo.size = d->filesize;
+          fileinfo.numsegments = d->numFileSegments;
+          strncpy(fileinfo.name, d->filename, MAX_FILENAME);
+          fileinfo.fp = d->rawFile;
+          for (int j = 0; j < MAX_SEGMENTS; j++) {
+            fileinfo.segmentSizes[j] = MAX_SEGMENTS;
+          }
+  
+          // figure out last segment size and set it
+          int16_t lastSize = fileinfo.size - (SEGMENT_SIZE - fileinfo.numsegments);
+          memset(&fileinfo.segmentSizes[fileinfo.numsegments-1], lastSize, sizeof(lastSize));
+          fileinfo.segmentSizes[fileinfo.numsegments-1] = lastSize;
+          
+          // add file to our owned files database
+          memcpy(&s_ownedFiles[s_numOwnedFiles++], &fileinfo, sizeof(struct FileInfo));
+        } 
         continue;
       }
 
@@ -544,16 +585,22 @@ int sendClientSegmentRequests()
       int numSegmentRequests = 8;
       if (numRequiredSegments < 8)
         numSegmentRequests = numRequiredSegments;
+      //printf("Client %d looping for %d segment requests for download %s\n", s_commInfo.clientid, numSegmentRequests, d->filename);
 
       while (numSegmentRequests > 0) {
         int randomSegment = rand() % numRequiredSegments; // chance of selecting the same segment more than once, but should be ok
         int segmentNum = requiredSegments[randomSegment];
+        int16_t clientId = d->segmentToClient[segmentNum];
+        if (clientId == 25) {
+          numSegmentRequests--;
+          continue;
+        }
+        //printf("Client %d sending CLNT_SEG_REQ to client %d for segment %d\n", s_commInfo.clientid, clientId, segmentNum);
 
         struct sockaddr_in cliaddr;
         memset((char *) &cliaddr, 0, sizeof(cliaddr));
         cliaddr.sin_family = AF_INET;
-        cliaddr.sin_port = htons(getClientPort(segmentNum));
-
+        cliaddr.sin_port = htons(getClientPort(clientId));
         
         // CLNT_SEG_REQ, // client asks other client for a file segment
         //   pktsize, msgtype, client id, filename, segment number
@@ -585,15 +632,77 @@ int sendClientSegmentRequests()
         sd->pktsize = sendPktSize;
         sd->cliaddr = cliaddr;
 
+        /*DEBUG*/dumpSegReqMsg(sd->pkt);
         int (*funcp)();
         funcp = sendClientSegmentRequest;
         Timers_AddTimer(s_commInfo.pktdelay, funcp, (struct SendData *)sd);
         numSegmentRequests--;
       }
+      //printf("Client %d DONE looping for %d segment requests for download %s\n", s_commInfo.clientid, numSegmentRequests, d->filename);
     }
   }
 
-  return -1;
+  return 0;
+}
+
+void dumpSegReqMsg(u_char *pktDontTouch)
+{
+  u_char *pkt = pktDontTouch;
+  int16_t n_pktsize;
+  memcpy(&n_pktsize, pkt, sizeof(int16_t));
+  int16_t pktsize = ntohs(n_pktsize);
+  pkt += 2; 
+
+  int16_t n_msgtype;
+  memcpy(&n_msgtype, pkt, sizeof(int16_t));
+  int16_t msgtype = ntohs(n_msgtype);
+  pkt += 2; 
+
+  int16_t n_id;
+  memcpy(&n_id, pkt, sizeof(int16_t));
+  int16_t id = ntohs(n_id);
+  pkt += 2; 
+
+  char filename[MAX_FILENAME];
+  memcpy(filename, pkt, MAX_FILENAME);
+  pkt += MAX_FILENAME;
+
+  int16_t n_segment;
+  memcpy(&n_segment, pkt, sizeof(int16_t));
+  int16_t segment = ntohs(n_segment);
+
+  printf("Client %d CLNT_SEG_REQ to client %d = pktsize %d, msgtype %d, filename %s, segment %d\n", s_commInfo.clientid, id, pktsize, msgtype, filename, segment);
+
+}
+
+void dumpSegRepMsg(u_char *pktDontTouch)
+{
+  u_char *pkt = pktDontTouch;
+  int16_t n_pktsize;
+  memcpy(&n_pktsize, pkt, sizeof(int16_t));
+  int16_t pktsize = ntohs(n_pktsize);
+  pkt += 2; 
+
+  int16_t n_msgtype;
+  memcpy(&n_msgtype, pkt, sizeof(int16_t));
+  int16_t msgtype = ntohs(n_msgtype);
+  pkt += 2; 
+
+  int16_t n_id;
+  memcpy(&n_id, pkt, sizeof(int16_t));
+  int16_t id = ntohs(n_id);
+  pkt += 2; 
+
+  char filename[MAX_FILENAME];
+  memcpy(filename, pkt, MAX_FILENAME);
+  pkt += MAX_FILENAME;
+
+  int16_t n_segment;
+  memcpy(&n_segment, pkt, sizeof(int16_t));
+  int16_t segment = ntohs(n_segment);
+
+  printf("Client %d CLNT_SEG_REP to client %d = pktsize %d, msgtype %d, filename %s, segment %d\n", s_commInfo.clientid, id, pktsize, msgtype, filename, segment);
+
 }
 
 
@@ -657,11 +766,15 @@ int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockad
 
   char filename[MAX_FILENAME];
   memcpy(&filename, pkt, MAX_FILENAME);
+  pkt += MAX_FILENAME;
   
+  //printf("Client %d received CLNT_INFO_REP from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
+
   int16_t n_numSegments;
   memcpy(&n_numSegments, pkt, sizeof(n_numSegments));
   pkt += sizeof(n_numSegments);
   int16_t numSegments = ntohs(n_numSegments);
+  u_char *segmentPointer = pkt;
 
   //
   // Update download with new meta data
@@ -675,6 +788,7 @@ int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockad
         pkt += sizeof(n_segment);
         int16_t segment = ntohs(n_segment);
         d->segmentToClient[segment] = cid;
+        //printf("Updating segmentToClient segment %d with client %d\n", segment, cid);
       }
       break;
     }
@@ -703,8 +817,15 @@ int handleClientInfoReply(u_char *pktDontTouch, struct timeval tv, struct sockad
     perror("ERROR opening client log file for append");
     exit(1);
   }
-  fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_INFO_REP\t%s\n", tv.tv_sec, tv.tv_usec, cid, filename);
-  printf("Client %d received CLNT_INFO_REP from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
+  fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_INFO_REP\t%s ", tv.tv_sec, tv.tv_usec, cid, filename);
+  for (int i = 0; i < numSegments; i++) {
+    int16_t n_segment;
+    memcpy(&n_segment, segmentPointer, sizeof(n_segment));
+    segmentPointer += sizeof(n_segment);
+    int16_t segment = ntohs(n_segment);
+    fprintf(fp, "%d ", segment);
+  }
+  fprintf(fp, "\n");
   fclose(fp);
 
   return -1;
@@ -754,7 +875,7 @@ int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct soc
         d->rawFileInit = true;
         memset(d->rawFile, 0, d->filesize);
       }
-      memcpy(d->rawFile+(segment*SEGMENT_SIZE), &rawData, segmentSize);
+      memcpy((d->rawFile+(segment*SEGMENT_SIZE)), &rawData, segmentSize);
       d->haveFileSegments[segment] = 1;
     }
   }
@@ -783,7 +904,7 @@ int handleClientSegmentReply(u_char *pktDontTouch, struct timeval tv, struct soc
     exit(1);
   }
   fprintf(fp, "%lu.%d\tFrom\t%d\tCLNT_SEG_REP\t%s\n", tv.tv_sec, tv.tv_usec, cid, filename);
-  printf("Client %d received CLNT_SEG_REP from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
+  //printf("Client %d received CLNT_SEG_REP from client %d for filename %s\n", s_commInfo.clientid, cid, filename);
   fclose(fp);
 
   return -1;
@@ -838,7 +959,7 @@ int sendClientInfoRequests()
       if (neighbors[j] == 0 || j == s_commInfo.clientid) // do not send to myself!
         continue;
 
-      /*DEBUG*/printf("Client %d sending CLNT_INFO_REQ to client %d: pktsize %d, msgtype %d, filename %s\n", s_commInfo.clientid, j, pktsize, ntohs(n_msgtype), d->filename);
+      ///*DEBUG*/printf("Client %d sending CLNT_INFO_REQ to client %d: pktsize %d, msgtype %d, filename %s\n", s_commInfo.clientid, j, pktsize, ntohs(n_msgtype), d->filename);
 
       memset((char *) &si_other, 0, sizeof(si_other));
       si_other.sin_family = AF_INET;
@@ -873,7 +994,7 @@ int sendClientInfoRequests()
     free(pkt);
   }
 
-  return -1;
+  return 0;
 }
 
 
@@ -901,6 +1022,8 @@ int sendClientInfoReply(struct SendData *sd)
   char filename[MAX_FILENAME];
   memcpy(&filename, sd->pkt+6, MAX_FILENAME);
 
+  //printf("Client %d sending CLNT_INFO_REP to client %d for filename %s\n", s_commInfo.clientid, cid, filename );
+
   int16_t n_numSegments;
   memcpy(&n_numSegments, sd->pkt+6+MAX_FILENAME, sizeof(n_numSegments));
   int16_t numSegments = ntohs(n_numSegments);
@@ -918,7 +1041,6 @@ int sendClientInfoReply(struct SendData *sd)
     fprintf(fp, "%d ", i);
   }
   fprintf(fp, "\n");
-  printf("Client %d sending CLNT_INFO_REP to client %d for filename %s \n", s_commInfo.clientid, cid, filename );
   fclose(fp);
 
   free(sd->pkt);
@@ -933,6 +1055,28 @@ int sendClientInfoReply(struct SendData *sd)
 //
 int sendInterestToTracker()
 {
+  //
+  // Check our termination conditions
+  // 
+  if (sc_numGroupUpdates >= 2) {
+    bool terminate = true;
+    for (int i = 0; i < s_numDownloads; i++) {
+      struct Download *d = &s_downloads[i];
+      if (d->doneDownloading == false) {
+        terminate = false;
+        break;
+      }
+    }
+    if (terminate == true) {
+      /*DEBUG*/printf("Client %d exiting after %d group updates\n", s_commInfo.clientid, sc_numGroupUpdates);
+      exit(0);
+    }
+  }
+  if (sc_numDownloadProgress >= 4) {
+    /*DEBUG*/printf("Client %d exiting after no download progress %d\n", s_commInfo.clientid, sc_numDownloadProgress);
+    exit(0);
+  }
+
   //
   // GROUP_SHOW_INTEREST (client -> tracker)
   //
@@ -989,6 +1133,7 @@ int sendInterestToTracker()
       if (strncmp(fi->name, d->filename, MAX_FILENAME) == 0) {
         haveFileAlready = true;
         d->filesize = fi->size;
+        d->doneDownloading = true;
         break;
       }
     }
@@ -1057,7 +1202,7 @@ int sendInterestToTracker()
   fprintf(fp, "%lu.%d\tTo\tT\tGROUP_SHOW_INTEREST\t%s\n", tv.tv_sec, tv.tv_usec, logstr);
   fclose(fp);
 
-  return -1;
+  return 0;
 }
 
 
@@ -1149,6 +1294,7 @@ void clientDoWork(int clientid, int32_t managerport)
   client = (struct Client *)deserializeClient((struct Client *)p_buffer);
   s_commInfo.pktdelay = client->pktdelay;
   s_commInfo.pktprob = client->pktprob;
+  s_commInfo.reqtimeout = client->reqtimeout;
   s_commInfo.clientid = client->id;
 
   ///*DEBUG*/printf("Client %d:\n", client->id);
@@ -1206,7 +1352,7 @@ void clientDoWork(int clientid, int32_t managerport)
   s_commInfo.udpsock = udpsock;
 
 
-  /*DEBUG*/dumpClientCommInfo();
+  ///*DEBUG*/dumpClientCommInfo();
 
   // lose the pesky "Address already in use" error message
   int yes = 1;
@@ -1258,7 +1404,7 @@ void clientDoWork(int clientid, int32_t managerport)
     long filesize = ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
-    unsigned char *filecontents = (unsigned char*)malloc(filesize);
+    u_char *filecontents = (u_char*)malloc(filesize);
     memset(filecontents, 0, filesize);
     fread(filecontents, filesize, 1, fp);
     fclose(fp);
@@ -1268,16 +1414,18 @@ void clientDoWork(int clientid, int32_t managerport)
     fileinfo.numsegments = (filesize / SEGMENT_SIZE) + 1;
     strncpy(fileinfo.name, filename, MAX_FILENAME);
     fileinfo.fp = filecontents;
-    memset(&fileinfo.segmentSizes, SEGMENT_SIZE, MAX_SEGMENTS);
+    for (int j = 0; j < MAX_SEGMENTS; j++) {
+      fileinfo.segmentSizes[j] = SEGMENT_SIZE;
+    }
 
     // figure out last segment size and set it
-    int16_t lastSize = fileinfo.size - (SEGMENT_SIZE - fileinfo.numsegments);
-    memset(&fileinfo.segmentSizes[fileinfo.numsegments-1], lastSize, sizeof(lastSize));
+    int16_t lastSize = abs(fileinfo.size - (SEGMENT_SIZE * fileinfo.numsegments));
+    fileinfo.segmentSizes[fileinfo.numsegments-1] = lastSize;
     
     // add file to our owned files database
     memcpy(&s_ownedFiles[s_numOwnedFiles++], &fileinfo, sizeof(struct FileInfo));
   }
-  /*DEBUG*/dumpClientOwnedFiles();
+  ///*DEBUG*/dumpClientOwnedFiles();
 
   //
   // Populate datastructure with s_downloads to complete
@@ -1288,37 +1436,61 @@ void clientDoWork(int clientid, int32_t managerport)
     memset(&d, 0, sizeof(struct Download));
     d.starttime = t->starttime;
     d.share = t->share;
-    d.enabled = false;
+    d.enabled = true; // TODO make this false
     d.filesize = 0;
     d.numFileSegments = 0;
     d.rawFileInit = false;
     snprintf(d.filename, MAX_FILENAME, "%s", t->file);
-    memset(&d.haveFileSegments, 0, MAX_SEGMENTS);
-    memset(&d.segmentToClient, MAX_CLIENTS, MAX_SEGMENTS); // will never have a client id = MAX_CLIENTS
+    for (int j = 0; j < MAX_SEGMENTS; j++) {
+      d.haveFileSegments[j] = 0;
+    }
+    for (int j = 0; j < MAX_SEGMENTS; j++) {
+      d.segmentToClient[j] = MAX_CLIENTS; // will never have a client id = MAX_CLIENTS
+    }
 
     for (int j = 0; j < s_numOwnedFiles; j++) {
       struct FileInfo *fi = &s_ownedFiles[j];
       if (strncmp(fi->name, d.filename, strlen(d.filename)) == 0) {
         d.filesize = fi->size;
         d.numFileSegments = fi->numsegments;
-        memset(&d.haveFileSegments, 1, d.numFileSegments);
+        d.doneDownloading = true;
+        for (int k = 0; k < d.numFileSegments; k++) {
+          d.haveFileSegments[k] = 1;
+        }
         break;
       }
     }
 
     memcpy(&s_downloads[s_numDownloads++], &d, sizeof(struct Download));
 
-    int (*fp)();
-   	fp = enableDownload;
-    Timers_AddTimer(d.starttime, fp, (long*)s_numDownloads);
+    //int (*fp)();
+   	//fp = enableDownload;
+    //Timers_AddTimer(d.starttime, fp, (long*)(s_numDownloads-1));
   }
-  /*DEBUG*/dumpClientDownloads();
+  ///*DEBUG*/dumpClientDownloads();
 
 	struct timeval tmv;
 	int status;
   fd_set active_fd_set, read_fd_set;
   FD_ZERO(&active_fd_set);
   FD_SET(udpsock, &active_fd_set);
+
+  //
+  // Group update to tracker
+  //
+  int (*funcp)();
+  funcp = sendInterestToTracker; // TODO start a time from within here with the client specific delay
+  Timers_AddTimer((s_commInfo.reqtimeout*1000), funcp, (int*)1);
+  printf("Added sendInterestToTimer %d seconds from now\n", (s_commInfo.reqtimeout*1000));
+
+  //sleep(s_commInfo.reqtimeout);
+
+  funcp = sendClientInfoRequests;
+  Timers_AddTimer(s_commInfo.pktdelay, funcp, (int*)1);
+     
+  funcp = sendClientSegmentRequests;
+  Timers_AddTimer(s_commInfo.pktdelay, funcp, (int*)1);
+
 
   // I've reused the code from test-app-c.c exampled provided by the timers
   // library in the following while loop.
@@ -1329,37 +1501,6 @@ void clientDoWork(int clientid, int32_t managerport)
       Timers_ExecuteNextTimer();
       continue;
 		}
-
-    //
-    // Check our termination conditions
-    //
-    if (sc_numGroupUpdates >= 2) {
-      bool terminate = true;
-      for (int i = 0; i < s_numDownloads; i++) {
-        struct Download *d = &s_downloads[i];
-        if (d->doneDownloading == false) {
-          terminate = false;
-          break;
-        }
-      }
-      if (terminate == true)
-        exit(0);
-    }
-    if (sc_numDownloadProgress >= 4)
-      exit(0);
-
-    //
-    // Group update to tracker
-    //
-    int (*fp)();
-    fp = sendInterestToTracker; // TODO start a time from within here with the client specific delay
-    Timers_AddTimer(s_reqtimeout, fp, (int*)1);
-
-    fp = sendClientInfoRequests;
-    Timers_AddTimer(s_commInfo.pktdelay, fp, (int*)1);
-     
-    fp = sendClientSegmentRequests;
-    Timers_AddTimer(s_commInfo.pktdelay, fp, (int*)1);
 
 		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
@@ -1423,6 +1564,7 @@ void clientDoWork(int clientid, int32_t managerport)
             /*DEBUG*/dumpClientClientAddrs();
             /*DEBUG*/dumpClientGroups();
             /*DEBUG*/dumpClientDownloads();
+            printf("\n\n");
             
           } else if (msgtype == 0) {
             // client -> client info req = 0
@@ -1482,7 +1624,9 @@ void handleTrackerGroupUpdate(u_char *pktDontTouch, int16_t buffersize, struct t
         if (d->filesize == 0 && newGroup.filesize != 0) {
           d->filesize = newGroup.filesize;
           d->numFileSegments = (d->filesize / SEGMENT_SIZE) + 1;
-          memset(&d->haveFileSegments, 0, MAX_SEGMENTS);
+          for (int j = 0; j < MAX_SEGMENTS; j++) {
+            d->haveFileSegments[j] = 0;
+          }
           d->rawFileInit = true;
           d->rawFile = malloc(d->filesize);
           memset(d->rawFile, 0, d->filesize);
@@ -1595,6 +1739,7 @@ struct Client* serializeClient(struct Client *client)
   s->id = htonl(client->id);
   s->pktdelay = htonl(client->pktdelay);
   s->pktprob = htonl(client->pktprob);
+  s->reqtimeout = htonl(client->reqtimeout);
   s->numfiles = htonl(client->numfiles);
   s->numtasks = htonl(client->numtasks);
   for (int i = 0; i < client->numfiles; i++) {
@@ -1622,6 +1767,7 @@ struct Client* deserializeClient(struct Client *client)
   s->id = ntohl(client->id);
   s->pktdelay = ntohl(client->pktdelay);
   s->pktprob = ntohl(client->pktprob);
+  s->reqtimeout = ntohl(client->reqtimeout);
   s->numfiles = ntohl(client->numfiles);
   s->numtasks = ntohl(client->numtasks);
   for (int i = 0; i < s->numfiles; i++) {

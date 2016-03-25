@@ -41,9 +41,10 @@ static bool st_terminate = false;
 
 int checkIfShouldTerminate()
 {
-  if (st_terminate == true)
+  if (st_terminate == true) {
+    /*DEBUG*/printf("Tracker terminated after 30 seconds of no client group updates\n");
     exit(0);
-
+  }
   st_terminate = true;
 
   return 0;
@@ -72,7 +73,7 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
   int16_t numfiles = ntohs(n_numfiles);
   pkt += 2;
 
-  printf("Tracker sending GROUP_ASSIGN: pktsize %d, msgtype %d, numfiles %d\n", pktsize, msgtype, numfiles);
+  //printf("Tracker sending GROUP_ASSIGN: pktsize %d, msgtype %d, numfiles %d\n", pktsize, msgtype, numfiles);
 
   for (int16_t i = 0; i < numfiles; i++) {
     struct Group newGroup;
@@ -95,7 +96,7 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
     pkt += sizeof(int16_t);
     uint16_t numneighbors = ntohs(n_numneighbors);
 
-    printf("File %d: %s, filesize %u, numneighbors %d: ", i, newGroup.filename, newGroup.filesize, numneighbors);
+    //printf("File %d: %s, filesize %u, numneighbors %d: ", i, newGroup.filename, newGroup.filesize, numneighbors);
     for (int i = 0; i < numneighbors; i++) {
       struct ClientAddr clientaddr;
 
@@ -116,9 +117,9 @@ void dumpTrackerUpdateMsg(u_char *pktDontTouch)
       pkt += sizeof(int16_t);
       uint16_t port = ntohs(n_port);
       clientaddr.port = port;
-      printf("%d %s %d\n", id, ip, port);
+      //printf("%d %s %d\n", id, ip, port);
     }
-    printf("\n");
+    //printf("\n");
   }
 }
 
@@ -267,7 +268,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
   int16_t numfiles = ntohs(n_numfiles);
   pkt += 2; 
 
-  printf("Client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
+  //printf("Client %d message: pktsize %d, msgtype %d, numfiles %d\n", id, pktsize, msgtype, numfiles);
 
   //
   // update client address database
@@ -316,7 +317,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
     memcpy(&n_type, pkt, sizeof(int16_t));
     int16_t type = ntohs(n_type);
     pkt += 2;
-    printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
+    //printf("filename %s, filesize %d, type %d\n", filename, filesize, type);
 
     // for logging save off filename
     strcat(logstr, filename);
@@ -373,7 +374,7 @@ void handleGroupUpdateRequest(u_char *pktDontTouch, struct sockaddr_in cliaddr)
       }
     }
   }
-  printf("\n\n");
+  //printf("\n\n");
 
   //
   // Log received packet
@@ -450,7 +451,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
 
   int (*funcp)();
   funcp = checkIfShouldTerminate;
-  Timers_AddTimer(60*30, funcp, (int*)1); // 30 second timer
+  Timers_AddTimer((30*1000), funcp, (int*)1); // 30 second timer
 
 
   // I've reused the code from test-app-c.c exampled provided by the timers
@@ -462,10 +463,6 @@ void trackerDoWork(int udpsock, int32_t trackerport)
       Timers_ExecuteNextTimer();
 			continue;
 		}
-		if (tmv.tv_sec == MAXVALUE && tmv.tv_usec == 0){
-		  /* There are no timers in the event queue */
-		        break;
-		}
 
 		tmv.tv_sec = 0; tmv.tv_usec = 200; // TODO figure out what to set timer to here
     read_fd_set = active_fd_set;
@@ -476,17 +473,17 @@ void trackerDoWork(int udpsock, int32_t trackerport)
 		  /* This should not happen */
 			fprintf(stderr, "Select returned %d\n", status);
 		} else {
-			if (status == 0) {
-				/* Timer expired, Hence process it  */
-		    Timers_ExecuteNextTimer();
-				/* Execute all timers that have expired.*/
-				Timers_NextTimerTime(&tmv);
-				while(tmv.tv_sec == 0 && tmv.tv_usec == 0){
-				  /* Timer at the head of the queue has expired  */
-		      Timers_ExecuteNextTimer();
-					Timers_NextTimerTime(&tmv);
-				}
-			}
+			//if (status == 0) { // TODO why can't I have this on?
+			//	/* Timer expired, Hence process it  */
+		  //  Timers_ExecuteNextTimer();
+			//	/* Execute all timers that have expired.*/
+			//	Timers_NextTimerTime(&tmv);
+			//	while(tmv.tv_sec == 0 && tmv.tv_usec == 0) {
+			//	  /* Timer at the head of the queue has expired  */
+		  //    Timers_ExecuteNextTimer();
+			//		Timers_NextTimerTime(&tmv);
+			//	}
+			//}
 			if (status > 0) {
         //
         // Receive client packet, update client and file databases, send requested
@@ -512,7 +509,7 @@ void trackerDoWork(int udpsock, int32_t trackerport)
           int16_t n_pktsize = 0;
           memcpy(&n_pktsize, &initBuff, sizeof(int16_t));
           int16_t pktsize = ntohs(n_pktsize);
-          printf("Tracker expects full packet to be size of %d\n", pktsize);
+          //printf("Tracker expects full packet to be size of %d\n", pktsize);
           u_char *buffer = malloc(pktsize);
           memcpy(buffer, &initBuff, bytesRecv); // copy first portion of packet into full size buffer
 
@@ -552,7 +549,6 @@ void trackerDoWork(int udpsock, int32_t trackerport)
             }
             totalBytesSent += bytesSent;
           }
-          printf("Tracker sent %d bytes to client\n", totalBytesSent);
 
           //
           // Log sent packet
