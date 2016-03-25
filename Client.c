@@ -579,7 +579,7 @@ int sendClientSegmentRequests()
           struct FileInfo fileinfo;
           fileinfo.size = d->filesize;
           fileinfo.numsegments = d->numFileSegments;
-          strncpy(fileinfo.name, d->filename, MAX_FILENAME);
+          strncpy(fileinfo.name, d->filename, strlen(d->filename));
           fileinfo.fp = d->rawFile;
           for (int j = 0; j < MAX_SEGMENTS; j++) {
             fileinfo.segmentSizes[j] = MAX_SEGMENTS;
@@ -587,7 +587,6 @@ int sendClientSegmentRequests()
   
           // figure out last segment size and set it
           int16_t lastSize = fileinfo.size - (SEGMENT_SIZE - fileinfo.numsegments);
-          memset(&fileinfo.segmentSizes[fileinfo.numsegments-1], lastSize, sizeof(lastSize));
           fileinfo.segmentSizes[fileinfo.numsegments-1] = lastSize;
           
           // add file to our owned files database
