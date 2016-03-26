@@ -233,15 +233,6 @@ int main(int argc, const char* argv[])
       if (done == -1) {
         if (errno == ECHILD)
           break; // no more child processes
-      } else {
-        //if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        //  perror("pid exit failed");
-        //  exit(1);
-        //}
-        if (!WIFEXITED(status)) {
-          printf("pid %d did not exit normally", done);
-          exit(1);
-        }
       }
     }
     //printf("DBG exiting manager process %d\n", getpid());

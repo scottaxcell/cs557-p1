@@ -42,7 +42,7 @@ static bool st_terminate = false;
 int checkIfShouldTerminate()
 {
   if (st_terminate == true) {
-    /*DEBUG*/printf("Tracker terminated after 30 seconds of no client group updates\n");
+    /*DEBUG*/printf("Tracker exiting after 30 seconds of no client group updates\n");
     exit(0);
   }
   st_terminate = true;
@@ -123,11 +123,6 @@ void dumpTrackerUpdateMsg(unsigned char *pktDontTouch)
   }
 }
 
-//void dumpGroupAssignMsg(unsigned char *pktDontTouch)
-//{
-//  unsigned char *pkt = pktDontTouch;
-//
-//}
 
 void dumpRequestedGroups()
 {

@@ -512,7 +512,7 @@ void writeDownloadedFile(struct Download *d)
   char filename[MAX_FILENAME];
   sprintf(filename, "%d-", s_commInfo.clientid);
   strncat(filename, d->filename, MAX_FILENAME); // skip original client id and dash
-  printf("Client %d is writing downloaded file %s!\n", s_commInfo.clientid, filename);
+  //printf("Client %d is writing downloaded file %s!\n", s_commInfo.clientid, filename);
 
   fp = fopen(filename, "wb");
   if (fp == NULL) {
@@ -1411,7 +1411,7 @@ void clientDoWork(int clientid, int32_t managerport)
   fprintf(fp, "pid %d\n", getpid());
   fprintf(fp, "tPort %d\n", trackerport);
   fprintf(fp, "myPort %d\n", clientport);
-  printf("Client %d wrote log file %s\n", clientid, filename);
+  //printf("Client %d wrote log file %s\n", clientid, filename);
   fclose(fp);
 
 
@@ -1545,7 +1545,7 @@ void clientDoWork(int clientid, int32_t managerport)
   int (*funcp)();
   funcp = sendInterestToTracker; // TODO start a time from within here with the client specific delay
   Timers_AddTimer((s_commInfo.reqtimeout*1000), funcp, (int*)1);
-  printf("Added sendInterestToTimer %d seconds from now\n", (s_commInfo.reqtimeout*1000));
+  //printf("Added sendInterestToTimer %d seconds from now\n", (s_commInfo.reqtimeout*1000));
 
   //sleep(s_commInfo.reqtimeout);
 
@@ -1625,11 +1625,11 @@ void clientDoWork(int clientid, int32_t managerport)
           if (msgtype == 42) {
             // tracker -> client group update = 42
             handleTrackerGroupUpdate(pkt, pktsize, tv);
-            /*DEBUG*/dumpClientClientAddrs();
-            /*DEBUG*/dumpClientGroups();
-            /*DEBUG*/dumpClientOwnedFiles();
-            /*DEBUG*/dumpClientDownloads();
-            printf("\n\n");
+            ///*DEBUG*/dumpClientClientAddrs();
+            ///*DEBUG*/dumpClientGroups();
+            ///*DEBUG*/dumpClientOwnedFiles();
+            ///*DEBUG*/dumpClientDownloads();
+            //printf("\n\n");
             
           } else if (msgtype == 0) {
             // client -> client info req = 0
@@ -1637,14 +1637,17 @@ void clientDoWork(int clientid, int32_t managerport)
           } else if (msgtype == 1) {
             // client -> client info rep = 1
             handleClientInfoReply(pkt, tv, udp_serv_addr);
+            free(pkt);
           } else if (msgtype == 2) {
             // client -> client seg req = 2
             handleClientSegmentRequest(pkt, tv, udp_serv_addr);
           } else if (msgtype == 3) {
             // client -> client seg rep = 3
             handleClientSegmentReply(pkt, tv, udp_serv_addr);
+            free(pkt);
+          } else {
+            free(pkt);
           }
-          free(pkt);
 			  }
 			}
 		}

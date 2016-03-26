@@ -58,6 +58,11 @@ CLNT_SEG_REP (client -> client): client sends a raw segment of a file to a clien
 
 Idiosyncrasies:
 ===============
+This program only supports sharing of files 320kB or less. This is due to the fact
+I chose a hard code value of 10240 maximum segments for a file. I'd like to change
+this implementation to use a dynamic malloc so that the program can supprt any
+size file in the future.
+
 Phase 1: Program correctly creates a process for the tracker and clients. All
 configuration information is sent from the manager to them successfully.
 
